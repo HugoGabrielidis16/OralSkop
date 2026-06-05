@@ -22,6 +22,9 @@ amp: true              # mixed precision (GPU only)
 aux_loss_weight: 0.4   # deeplab/fcn auxiliary head loss weight
 class_weights: null    # "auto" = median-frequency balancing for class imbalance
 val_interval: 1
+progress: true         # tqdm train/val progress bars
+log_per_class: true    # print per-class IoU/Dice/accuracy after each validation
+save_model: true       # write last.pt/best.pt checkpoints
 seed: 42
 
 out: runs/seg
