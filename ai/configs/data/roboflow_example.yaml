@@ -1,0 +1,33 @@
+# TEMPLATE — adding a Roboflow YOLO-seg dataset (config-only, no code).
+#
+# 1. Export the dataset from Roboflow as "YOLOv8/YOLO11 (Instance Segmentation)".
+# 2. Unzip it into ai/datasets/<YourDataset>/ (must contain data.yaml + train/valid/test).
+# 3. Copy this file to configs/data/<your_name>.yaml and fill in the values below.
+# 4. Build:   uv run python -m oralskop.data.prepare --datasets <your_name>
+#    Merge:   uv run python -m oralskop.data.prepare --datasets alphadent <your_name> --out-name merged
+
+converter: roboflow_yoloseg
+name: caries_roboflow                 # output folder name under data/
+
+# Raw export root, relative to the ai/ directory.
+raw_root: datasets/CariesRoboflow
+
+# Map each native Roboflow class NAME -> a canonical class name from configs/taxonomy.yaml.
+# Native names are read from the export's data.yaml. Omit a native class to drop it.
+class_map:
+  Caries: caries
+  Calculus: calculus
+  Gingivitis: gingivitis
+  Plaque: plaque
+
+# --- Optional (defaults shown) ----------------------------------------------
+# splits: [train, valid, test]        # which export splits to ingest
+# images_subdir_name: images          # supports train/images AND images/train layouts
+# labels_subdir_name: labels
+# roboflow_data_yaml: data.yaml       # native-name source
+
+# Roboflow splits are pooled and re-split here, grouped by source image (the part of
+# the filename before `.rf.<hash>`), so augmented variants stay on the same side.
+split:
+  val_fraction: 0.15
+  seed: 42
