@@ -38,10 +38,17 @@ def evaluate(
     limit: int | None = None,
     desc: str = "val",
     progress: bool = True,
+    criterion=None,
+    aux_weight: float = 0.0,
 ) -> dict[str, float]:
-    """Return semantic-segmentation metrics from a confusion matrix."""
+    """Return semantic-segmentation metrics from a confusion matrix.
+
+    If ``criterion`` is given, also computes the mean validation loss (matching the
+    training objective, including the aux head when ``aux_weight`` > 0).
+    """
     model.eval()
     conf = torch.zeros(num_classes, num_classes, dtype=torch.int64, device=device)
+    loss_sum, loss_n = 0.0, 0
     batches = tqdm(
         loader,
         total=loader_batches(loader, limit),
@@ -54,7 +61,15 @@ def evaluate(
         if limit and i >= limit:
             break
         images, targets = images.to(device), targets.to(device)
-        preds = model(images)["out"].argmax(1)
+        out = model(images)
+        logits = out["out"]
+        if criterion is not None:
+            loss = criterion(logits, targets)
+            if aux_weight and "aux" in out:
+                loss = loss + aux_weight * criterion(out["aux"], targets)
+            loss_sum += loss.item() * images.size(0)
+            loss_n += images.size(0)
+        preds = logits.argmax(1)
         k = (targets >= 0) & (targets < num_classes)
         idx = num_classes * targets[k].view(-1) + preds[k].view(-1)
         conf += torch.bincount(idx, minlength=num_classes**2).reshape(num_classes, num_classes)
@@ -70,6 +85,7 @@ def evaluate(
     fg_present[0] = False
     fg_true = true_pixels[1:].sum()
     return {
+        "val_loss": (loss_sum / loss_n) if loss_n else float("nan"),
         "pixel_acc": (inter.sum() / conf.sum().clamp(min=1)).item(),
         "fg_pixel_acc": (inter[1:].sum() / fg_true.clamp(min=1)).item(),
         "mean_acc": class_acc[present].mean().item() if present.any() else 0.0,
@@ -319,8 +335,11 @@ def main(argv: list[str] | None = None) -> None:
                 limit=limit,
                 desc=f"epoch {epoch}/{cfg.get('epochs', 50)} val",
                 progress=progress,
+                criterion=criterion,
+                aux_weight=aux_w,
             )
             line += (
+                f"  val_loss {m['val_loss']:.4f}"
                 f"  val_mIoU {m['miou']:.4f}  val_fg_mIoU {m['fg_miou']:.4f}"
                 f"  val_dice {m['mean_dice']:.4f}  val_fg_dice {m['fg_dice']:.4f}"
                 f"  val_acc {m['pixel_acc']:.4f}  val_fg_acc {m['fg_pixel_acc']:.4f}"
@@ -357,6 +376,7 @@ def main(argv: list[str] | None = None) -> None:
                    "lr": optimizer.param_groups[0]["lr"], "epoch_seconds": time.time() - t0}
             if epoch % cfg.get("val_interval", 1) == 0:
                 log.update({
+                    "val/loss": m["val_loss"],
                     "val/mIoU": m["miou"], "val/fg_mIoU": m["fg_miou"],
                     "val/dice": m["mean_dice"], "val/fg_dice": m["fg_dice"],
                     "val/pixel_acc": m["pixel_acc"], "val/fg_pixel_acc": m["fg_pixel_acc"],
@@ -366,6 +386,7 @@ def main(argv: list[str] | None = None) -> None:
                     if m["per_class_support"][idx] > 0:
                         log[f"val_iou/{name}"] = m["per_class_iou"][idx]
                         log[f"val_dice/{name}"] = m["per_class_dice"][idx]
+                        log[f"val_acc/{name}"] = m["per_class_acc"][idx]
                 if wandb_n_images > 0:
                     log["val/predictions"] = wandb_prediction_images(
                         wb, model, val_ds, device, wandb_n_images, seg_labels)
