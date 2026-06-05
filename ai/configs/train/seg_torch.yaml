@@ -1,0 +1,28 @@
+# Custom PyTorch semantic-segmentation training (non-YOLO path).
+# Consumed by src/oralskop/torchseg/train.py. Override any key with --override key=value,
+# and the dataset list with --datasets a b.
+
+# One or more BUILT datasets (data/<name>/). Multiple -> merged (MergedSegDataset).
+datasets: [alphadent]
+split_train: train
+split_val: val
+
+# Model: deeplabv3_resnet50 | deeplabv3_mobilenet_v3_large | fcn_resnet50 | lraspp_mobilenet_v3_large
+arch: deeplabv3_resnet50
+pretrained: true
+
+imgsz: 512
+epochs: 50
+batch: 8
+lr: 0.0002
+weight_decay: 0.0001
+workers: 8
+device: 0              # 0 / "cuda" for GPU, "cpu" for smoke tests
+amp: true              # mixed precision (GPU only)
+aux_loss_weight: 0.4   # deeplab/fcn auxiliary head loss weight
+class_weights: null    # "auto" = median-frequency balancing for class imbalance
+val_interval: 1
+seed: 42
+
+out: runs/seg
+name: deeplabv3_alphadent

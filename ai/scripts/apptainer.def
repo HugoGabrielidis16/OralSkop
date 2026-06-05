@@ -1,0 +1,37 @@
+Bootstrap: docker
+From: nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
+
+# Apptainer/Singularity image for OralSkop YOLO11-seg training on an HPC GPU node.
+# Build (on a node where you have fakeroot/sudo):
+#     apptainer build oralskop.sif scripts/apptainer.def
+# Run training:
+#     apptainer exec --nv oralskop.sif uv run python -m oralskop.train.train \
+#         --config configs/train/yolo11_seg.yaml
+
+%files
+    pyproject.toml /opt/oralskop/pyproject.toml
+    src /opt/oralskop/src
+    configs /opt/oralskop/configs
+    README.md /opt/oralskop/README.md
+
+%post
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update && apt-get install -y --no-install-recommends \
+        python3 python3-pip curl ca-certificates libgl1 libglib2.0-0 git
+    rm -rf /var/lib/apt/lists/*
+
+    # Install uv (fast, reproducible installs).
+    curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
+
+    cd /opt/oralskop
+    # CUDA torch build matching the base image, then the rest of the project.
+    uv pip install --system torch torchvision --index-url https://download.pytorch.org/whl/cu124
+    uv pip install --system -e .
+
+%environment
+    export PYTHONUNBUFFERED=1
+    export ULTRALYTICS_DIR=/tmp/ultralytics
+
+%runscript
+    cd /opt/oralskop
+    exec uv run python -m oralskop.train.train "$@"

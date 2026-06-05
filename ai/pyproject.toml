@@ -1,0 +1,43 @@
+[project]
+name = "oralskop"
+version = "0.1.0"
+description = "Dental pathology instance-segmentation training pipeline (multi-dataset, YOLO11-seg)"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "ultralytics>=8.3.0",
+    "torch>=2.2",
+    "torchvision>=0.17",
+    # Full (GUI) OpenCV so the visualizer can show windows on a desktop; still
+    # imports headless on the cluster (the Apptainer image provides libGL/glib).
+    "opencv-python>=4.9",
+    "pyyaml>=6.0",
+    "scikit-learn>=1.4",
+    "numpy>=1.26",
+    "tqdm>=4.66",
+]
+
+[project.optional-dependencies]
+# Experiment tracking — install with: uv sync --extra wandb
+wandb = ["wandb>=0.17"]
+
+[project.scripts]
+oralskop-prepare = "oralskop.cli:prepare_main"
+oralskop-coverage = "oralskop.data.coverage:main"
+oralskop-describe = "oralskop.data.describe:main"
+oralskop-train = "oralskop.train.train:main"
+oralskop-train-seg = "oralskop.torchseg.train:main"
+oralskop-eval = "oralskop.eval.evaluate:main"
+oralskop-viz = "oralskop.viz.visualize:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/oralskop"]
+
+[tool.uv]
+# CPU-friendly default resolution; on the GPU cluster, install the CUDA torch build
+# explicitly, e.g. `uv pip install torch --index-url https://download.pytorch.org/whl/cu124`.
+package = true
