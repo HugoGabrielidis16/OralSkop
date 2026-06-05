@@ -145,7 +145,9 @@ Key config (`configs/train/seg_torch.yaml`): `arch`
 (deeplabv3_resnet50 / deeplabv3_mobilenet_v3_large / fcn_resnet50 / lraspp_mobilenet_v3_large),
 `imgsz`, `batch`, `lr`, `class_weights: auto` (median-frequency balancing for imbalance),
 `limit_batches` (debug). Reports **val mIoU** + pixel accuracy; saves `best.pt`/`last.pt`
-to `runs/seg/<name>/`.
+to `runs/seg/<name>/`. By default `exist_ok: false` **auto-increments** the run dir
+(`<name>`, `<name>2`, `<name>3`, …) so a re-run never overwrites old checkpoints; set
+`exist_ok=true` to reuse/overwrite `runs/seg/<name>/`.
 
 The `MergedSegDataset` / `YoloSegDataset` classes (`oralskop/torchseg/dataset.py`) are
 reusable on their own for custom loops, EDA, or the future SAM2 stage.

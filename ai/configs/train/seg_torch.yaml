@@ -29,3 +29,5 @@ seed: 42
 
 out: runs/seg
 name: deeplabv3_alphadent
+exist_ok: false        # false = auto-increment (name2, name3, ...) so a new run never
+                       # overwrites old checkpoints; true = reuse/overwrite runs/seg/<name>

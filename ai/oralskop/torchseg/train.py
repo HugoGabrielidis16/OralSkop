@@ -126,6 +126,22 @@ def class_weights_from(dataset, num_classes) -> torch.Tensor:
     return w
 
 
+def resolve_run_dir(base: Path, name: str, exist_ok: bool) -> Path:
+    """Output dir for this run, auto-incrementing the name if it already exists.
+
+    Mirrors Ultralytics: ``exist_ok=True`` reuses/overwrites ``base/name``; otherwise
+    if ``base/name`` exists, bump to ``base/name2``, ``base/name3``, ... (first free),
+    so a new run never clobbers a previous run's checkpoints.
+    """
+    candidate = base / name
+    if exist_ok or not candidate.exists():
+        return candidate
+    i = 2
+    while (base / f"{name}{i}").exists():
+        i += 1
+    return base / f"{name}{i}"
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Custom PyTorch seg training.")
     p.add_argument("--config", required=True)
@@ -174,8 +190,13 @@ def main(argv: list[str] | None = None) -> None:
     scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
     aux_w = cfg.get("aux_loss_weight", 0.4) if has_aux(arch) else 0.0
 
-    out_dir = (AI_ROOT / cfg.get("out", "runs/seg") / cfg.get("name", "seg")).resolve()
+    run_name = cfg.get("name", "seg")
+    exist_ok = bool(cfg.get("exist_ok", False))
+    out_dir = resolve_run_dir((AI_ROOT / cfg.get("out", "runs/seg")).resolve(), run_name, exist_ok)
     out_dir.mkdir(parents=True, exist_ok=True)
+    if out_dir.name != run_name:
+        print(f">> Run dir '{run_name}' already exists; writing to '{out_dir.name}' "
+              f"instead (pass exist_ok=true to reuse/overwrite).")
     metrics_path = out_dir / "metrics.jsonl"
     if metrics_path.exists():
         metrics_path.unlink()
