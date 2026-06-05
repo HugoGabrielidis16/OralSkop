@@ -9,7 +9,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_WEIGHTS = ROOT / "runs" / "yolo" / "yolo_dental_v1" / "weights" / "best.pt"
 
 

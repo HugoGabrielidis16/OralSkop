@@ -20,7 +20,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp"}
 
@@ -90,7 +90,7 @@ def rasterize_polygons(label_path: Path, size: int) -> np.ndarray:
 
 class DentalDataset(Dataset):
     def __init__(self, split: str, imgsz: int = 512, augment: bool = False,
-                 data_root: Path = ROOT / "dataset" / "AlphaDent"):
+                 data_root: Path = ROOT / "ai" / "dataset" / "AlphaDent"):
         self.imgsz = imgsz
         self.transform = _build_transforms(imgsz, augment)
 
