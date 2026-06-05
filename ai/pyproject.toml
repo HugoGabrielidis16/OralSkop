@@ -22,6 +22,16 @@ dependencies = [
 [project.optional-dependencies]
 # Experiment tracking — install with: uv sync --extra wandb
 wandb = ["wandb>=0.17"]
+# FastAPI serving (notebook endpoint for a trained model) — `uv sync --extra serve`.
+# pyngrok exposes a public URL from the notebook; nest_asyncio lets uvicorn coexist
+# with the kernel's event loop.
+serve = [
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "python-multipart>=0.0.9",
+    "pyngrok>=7.0",
+    "nest-asyncio>=1.6",
+]
 
 [project.scripts]
 oralskop-prepare = "oralskop.cli:prepare_main"
@@ -32,6 +42,7 @@ oralskop-train-seg = "oralskop.torchseg.train:main"
 oralskop-test-seg = "oralskop.torchseg.test:main"
 oralskop-eval = "oralskop.eval.evaluate:main"
 oralskop-viz = "oralskop.viz.visualize:main"
+oralskop-serve = "oralskop.serve.app:main"
 
 [build-system]
 requires = ["hatchling"]
