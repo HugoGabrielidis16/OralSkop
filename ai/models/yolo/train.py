@@ -10,10 +10,10 @@ import argparse
 import shutil
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-WEIGHTS_DIR = ROOT / "models" / "weights"
+ROOT = Path(__file__).resolve().parents[3]
+WEIGHTS_DIR = ROOT / "ai" / "models" / "weights"
 DEFAULT_WEIGHTS = WEIGHTS_DIR / "yolov8m-seg.pt"
-DEFAULT_DATA = ROOT / "models" / "configs" / "dataset.yaml"
+DEFAULT_DATA = ROOT / "ai" / "models" / "configs" / "dataset.yaml"
 
 
 def parse_args(argv=None):

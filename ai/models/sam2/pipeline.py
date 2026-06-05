@@ -18,8 +18,8 @@ import cv2
 import numpy as np
 import torch
 
-ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_CHECKPOINT = ROOT / "models" / "weights" / "sam2.1_hiera_small.pt"
+ROOT = Path(__file__).resolve().parents[3]
+DEFAULT_CHECKPOINT = ROOT / "ai" / "models" / "weights" / "sam2.1_hiera_small.pt"
 SAM2_CFG = "configs/sam2.1/sam2.1_hiera_s.yaml"   # path inside the sam2 package
 
 
