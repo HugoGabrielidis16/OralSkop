@@ -23,7 +23,7 @@ from torch.utils.data import ConcatDataset, Dataset
 
 from oralskop.data.verify import IMAGE_EXTS
 
-AI_ROOT = Path(__file__).resolve().parents[3]
+AI_ROOT = Path(__file__).resolve().parents[2]
 
 # ImageNet normalization (torchvision pretrained backbones expect it).
 _MEAN = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)

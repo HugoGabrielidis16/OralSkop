@@ -1,5 +1,5 @@
 # YOLO11-seg training configuration for OralSkop.
-# Consumed by src/oralskop/train/train.py. Any key here can be overridden on the CLI
+# Consumed by oralskop/train/train.py. Any key here can be overridden on the CLI
 # with `--override key=value` (e.g. `--override epochs=1 device=cpu`).
 
 # Path to the generated dataset descriptor (produced by scripts/prepare_alphadent.py).

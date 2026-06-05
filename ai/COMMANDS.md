@@ -147,7 +147,7 @@ Key config (`configs/train/seg_torch.yaml`): `arch`
 `limit_batches` (debug). Reports **val mIoU** + pixel accuracy; saves `best.pt`/`last.pt`
 to `runs/seg/<name>/`.
 
-The `MergedSegDataset` / `YoloSegDataset` classes (`src/oralskop/torchseg/dataset.py`) are
+The `MergedSegDataset` / `YoloSegDataset` classes (`oralskop/torchseg/dataset.py`) are
 reusable on their own for custom loops, EDA, or the future SAM2 stage.
 
 ---
@@ -247,10 +247,10 @@ visual confirmation — see `configs/data/bmc_oral_health.yaml`.
 
 Needs a small one-time converter, then it's config-only forever after:
 
-1. Add `src/oralskop/data/converters/<name>.py` implementing the `Converter` protocol
+1. Add `oralskop/data/converters/<name>.py` implementing the `Converter` protocol
    (`records()` yielding `SampleRecord`s with canonical label lines + a grouping key;
    `verify()` returning `VerifyReport`s). Reuse `base.remap_label_text` for YOLO-seg.
-2. Register it in `src/oralskop/data/converters/registry.py` (`REGISTRY["<name>"] = ...`).
+2. Register it in `oralskop/data/converters/registry.py` (`REGISTRY["<name>"] = ...`).
 3. Add `configs/data/<name>.yaml` with `converter: <name>` + paths + `class_map`.
 4. Build & train exactly as in Case A steps 4–5.
 

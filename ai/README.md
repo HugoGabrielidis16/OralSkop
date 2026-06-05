@@ -14,7 +14,7 @@ ai/
     taxonomy.yaml          # canonical dental-condition classes (versioned)
     data/alphadent.yaml    # AlphaDent raw paths + native->canonical class map
     train/yolo11_seg.yaml  # model + hyperparameters
-  src/oralskop/
+  oralskop/
     data/                  # verify, split, build (-> data.yaml), prepare CLI
       converters/          # base + registry + alphadent + roboflow_yoloseg
     train/train.py         # config-driven Ultralytics training entrypoint

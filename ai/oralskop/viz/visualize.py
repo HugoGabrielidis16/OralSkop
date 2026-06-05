@@ -38,8 +38,8 @@ import yaml
 
 from oralskop.data.verify import IMAGE_EXTS
 
-# ai/ directory (this file is ai/src/oralskop/viz/visualize.py -> parents[3] == ai/).
-AI_ROOT = Path(__file__).resolve().parents[3]
+# ai/ directory (this file is ai/oralskop/viz/visualize.py -> parents[2] == ai/).
+AI_ROOT = Path(__file__).resolve().parents[2]
 
 # Distinct BGR colors, indexed by class id (cycled if more classes than colors).
 # The first 7 are maximally distinct so adjacent taxonomy classes (e.g. gingivitis vs
