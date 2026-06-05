@@ -63,7 +63,16 @@ def load_model(
     """
     ckpt_class_names = None
     if weights:
-        ckpt = torch.load(str(weights), map_location=device, weights_only=False)
+        path = Path(weights)
+        if not path.is_absolute():
+            path = (AI_ROOT / path).resolve()
+        if not path.exists():
+            raise FileNotFoundError(
+                f"Checkpoint not found: {path}\n(was training run with save_model "
+                f"enabled? a `save_model=false` run writes no best.pt/last.pt.)"
+            )
+        ckpt = torch.load(str(path), map_location=device, weights_only=False)
+        meta = ""
         if isinstance(ckpt, dict) and "model" in ckpt:
             state = ckpt["model"]
             arch = ckpt.get("arch", arch)
@@ -74,13 +83,25 @@ def load_model(
                     f"Checkpoint has {ckpt_ncls} classes but the dataset has "
                     f"{num_seg_classes}. Rebuild the dataset or use matching weights."
                 )
+            epoch = ckpt.get("epoch")
+            miou = ckpt.get("miou", (ckpt.get("metrics") or {}).get("miou"))
+            meta = (f"  (arch={arch}"
+                    + (f", epoch={epoch}" if epoch is not None else "")
+                    + (f", val mIoU={miou:.4f}" if isinstance(miou, (int, float)) else "")
+                    + ")")
         else:
-            state = ckpt  # a bare state_dict
+            state = ckpt  # a bare state_dict (no metadata)
+            meta = f"  (bare state_dict, arch={arch} assumed from args/config)"
         model = build_model(num_seg_classes, arch=arch, pretrained=False)
-        model.load_state_dict(state)
+        # strict=True -> a genuinely mismatched checkpoint errors loudly instead of
+        # silently leaving layers randomly initialized.
+        model.load_state_dict(state, strict=True)
+        print(f">> Loaded model weights from: {path}{meta}")
     else:
-        print("WARNING: no --weights given; using an UNtrained head — predictions "
-              "will be meaningless (only useful to smoke-test this pipeline).")
+        print(">> NO checkpoint loaded — building model with "
+              + ("pretrained (COCO) weights" if pretrained else "random/from-scratch weights")
+              + ".\n   WARNING: predictions will NOT reflect a trained OralSkop model "
+              "(pass weights=... / --weights to load one).")
         model = build_model(num_seg_classes, arch=arch, pretrained=pretrained)
     return model.to(device).eval(), arch, ckpt_class_names
 

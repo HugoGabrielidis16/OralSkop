@@ -36,6 +36,11 @@ def build_model(num_classes: int, arch: str = "deeplabv3_resnet50", pretrained: 
     builder, has_aux_head = _BUILDERS[arch]
 
     kwargs = {"weights": "DEFAULT" if pretrained else None}
+    if not pretrained:
+        # torchvision defaults `weights_backbone` to ImageNet even when weights=None,
+        # so it would download the backbone anyway. None = truly from scratch / no
+        # download (correct for `pretrained=False` and for loading our own checkpoint).
+        kwargs["weights_backbone"] = None
     if has_aux_head:
         kwargs["aux_loss"] = True
     model = builder(**kwargs)
