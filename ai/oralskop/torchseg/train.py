@@ -16,8 +16,13 @@ import json
 import time
 from pathlib import Path
 
+import numpy as np
 import torch
 from tqdm.auto import tqdm
+
+# ImageNet normalization (matches dataset.py) — to un-normalize images for W&B previews.
+_NORM_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+_NORM_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
 from oralskop.config import apply_overrides, load_yaml
 from oralskop.torchseg.dataset import AI_ROOT, build_seg_dataset
@@ -126,6 +131,59 @@ def class_weights_from(dataset, num_classes) -> torch.Tensor:
     return w
 
 
+def wandb_setup(cfg: dict, run_name: str, out_dir: Path):
+    """Init a Weights & Biases run if ``cfg['wandb']`` is true; else return ``None``.
+
+    Never aborts training: a missing package or failed login just disables logging
+    (with a clear message). Returns the ``wandb`` module when logging is active.
+    """
+    if not cfg.get("wandb", False):
+        return None
+    try:
+        import wandb
+    except ImportError:
+        print(">> wandb requested but not installed — run `uv sync --extra wandb`. "
+              "Continuing WITHOUT W&B.")
+        return None
+    try:
+        wandb.init(
+            project=cfg.get("wandb_project", "oralskop-seg"),
+            entity=cfg.get("wandb_entity"),
+            name=run_name,
+            config=cfg,
+            dir=str(out_dir),
+        )
+    except Exception as exc:  # not logged in / no API key / network
+        print(f">> wandb.init failed ({exc}); continuing WITHOUT W&B. Set WANDB_API_KEY "
+              "or run `wandb login <token>` in the notebook first.")
+        return None
+    print(f">> W&B logging enabled: project='{cfg.get('wandb_project', 'oralskop-seg')}' "
+          f"run='{run_name}' url={wandb.run.url}")
+    return wandb
+
+
+@torch.no_grad()
+def wandb_prediction_images(wb, model, dataset, device, n: int, seg_labels: dict[int, str]):
+    """Build N W&B Images with interactive prediction + ground-truth mask overlays.
+
+    Uses the first N (deterministic) val samples so the same images are tracked across
+    epochs. ``seg_labels`` maps pixel value -> name (0=background, class c -> c+1).
+    """
+    model.eval()
+    images = []
+    for i in range(min(n, len(dataset))):
+        image, target = dataset[i]
+        pred = model(image.unsqueeze(0).to(device))["out"].argmax(1)[0].cpu().numpy()
+        rgb = image.cpu().numpy().transpose(1, 2, 0) * _NORM_STD + _NORM_MEAN
+        rgb = (np.clip(rgb, 0.0, 1.0) * 255).astype(np.uint8)
+        images.append(wb.Image(rgb, masks={
+            "prediction": {"mask_data": pred.astype(np.uint8), "class_labels": seg_labels},
+            "ground_truth": {"mask_data": target.cpu().numpy().astype(np.uint8),
+                             "class_labels": seg_labels},
+        }))
+    return images
+
+
 def resolve_run_dir(base: Path, name: str, exist_ok: bool) -> Path:
     """Output dir for this run, auto-incrementing the name if it already exists.
 
@@ -205,6 +263,11 @@ def main(argv: list[str] | None = None) -> None:
     limit = cfg.get("limit_batches")  # cap batches/epoch for quick smoke tests
     progress = bool(cfg.get("progress", True))
     save_model = bool(cfg.get("save_model", True))
+
+    # Weights & Biases (optional, config-gated). Disabled cleanly if unavailable.
+    wb = wandb_setup(cfg, out_dir.name, out_dir)
+    seg_labels = {0: "background", **{c + 1: n for c, n in train_ds.class_names.items()}}
+    wandb_n_images = int(cfg.get("wandb_images", 8))
 
     for epoch in range(1, cfg.get("epochs", 50) + 1):
         model.train()
@@ -288,6 +351,30 @@ def main(argv: list[str] | None = None) -> None:
         tqdm.write(f"{line}  ({time.time() - t0:.0f}s)")
         if cfg.get("log_per_class", True) and epoch % cfg.get("val_interval", 1) == 0:
             tqdm.write("  per_class " + format_per_class(m, class_names))
+
+        if wb is not None:
+            log = {"train/loss": train_loss, "train/pixel_acc": train_acc,
+                   "lr": optimizer.param_groups[0]["lr"], "epoch_seconds": time.time() - t0}
+            if epoch % cfg.get("val_interval", 1) == 0:
+                log.update({
+                    "val/mIoU": m["miou"], "val/fg_mIoU": m["fg_miou"],
+                    "val/dice": m["mean_dice"], "val/fg_dice": m["fg_dice"],
+                    "val/pixel_acc": m["pixel_acc"], "val/fg_pixel_acc": m["fg_pixel_acc"],
+                    "val/mean_acc": m["mean_acc"],
+                })
+                for idx, name in enumerate(class_names):
+                    if m["per_class_support"][idx] > 0:
+                        log[f"val_iou/{name}"] = m["per_class_iou"][idx]
+                        log[f"val_dice/{name}"] = m["per_class_dice"][idx]
+                if wandb_n_images > 0:
+                    log["val/predictions"] = wandb_prediction_images(
+                        wb, model, val_ds, device, wandb_n_images, seg_labels)
+                wb.summary["best_val_mIoU"] = best_miou
+            wb.log(log, step=epoch)
+
+    if wb is not None:
+        wb.summary["best_val_mIoU"] = best_miou
+        wb.finish()
 
     if save_model:
         print(f"\nDone. Best val mIoU {best_miou:.4f}. Weights in {out_dir}")

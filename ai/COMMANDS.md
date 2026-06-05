@@ -152,6 +152,38 @@ to `runs/seg/<name>/`. By default `exist_ok: false` **auto-increments** the run 
 The `MergedSegDataset` / `YoloSegDataset` classes (`oralskop/torchseg/dataset.py`) are
 reusable on their own for custom loops, EDA, or the future SAM2 stage.
 
+### Weights & Biases logging (optional)
+
+The torchseg loop can stream metrics + live prediction overlays to W&B. One-time install:
+
+```bash
+uv sync --extra wandb
+```
+
+Authenticate (in the Jupyter notebook, before launching training) — either set the key
+as an env var so the `!`-subprocess inherits it, or log in once (writes `~/.netrc`):
+
+```python
+import os; os.environ["WANDB_API_KEY"] = "<your-token>"   # option A (Python cell)
+```
+```bash
+!wandb login <your-token>                                  # option B (persists)
+```
+
+Then enable it on the run:
+
+```bash
+uv run python -m oralskop.torchseg.train --config configs/train/seg_torch.yaml \
+    --datasets alphadent --override device=0 wandb=true wandb_project=oralskop-seg
+```
+
+Config knobs (`seg_torch.yaml`): `wandb` (on/off), `wandb_project`, `wandb_entity`,
+`wandb_images` (val prediction overlays logged each validation; `0` = none). Logged:
+`train/loss`, `train/pixel_acc`, `lr`, `val/mIoU` + `val/fg_mIoU` + dice/acc, per-class
+`val_iou/<class>`, and interactive prediction vs. ground-truth masks. The run name matches
+the (auto-incremented) `runs/seg/<name>` dir. If wandb isn't installed or you're not
+logged in, training prints a warning and continues **without** it (never crashes).
+
 ---
 
 ## 3d. Qualitatively test a torchseg model (raw | prediction | ground truth)

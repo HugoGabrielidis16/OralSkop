@@ -31,3 +31,10 @@ out: runs/seg
 name: deeplabv3_alphadent
 exist_ok: false        # false = auto-increment (name2, name3, ...) so a new run never
                        # overwrites old checkpoints; true = reuse/overwrite runs/seg/<name>
+
+# Weights & Biases logging (optional). Install with `uv sync --extra wandb`, then set
+# WANDB_API_KEY in the notebook (or run `wandb login <token>`) before training.
+wandb: false
+wandb_project: oralskop-seg
+wandb_entity: null     # team/user; null = your default entity
+wandb_images: 8        # log this many val prediction overlays each validation (0 = none)
