@@ -1,5 +1,5 @@
 # Custom PyTorch semantic-segmentation training (non-YOLO path).
-# Consumed by src/oralskop/torchseg/train.py. Override any key with --override key=value,
+# Consumed by oralskop/torchseg/train.py. Override any key with --override key=value,
 # and the dataset list with --datasets a b.
 
 # One or more BUILT datasets (data/<name>/). Multiple -> merged (MergedSegDataset).
