@@ -147,6 +147,12 @@ def predict_and_show(
     instead (for headless / subprocess use). Any explicit kwarg overrides ``config``.
     Returns the matplotlib Figure.
     """
+    import os
+    # A `!python -m ...` subprocess inherits MPLBACKEND=module://matplotlib_inline...
+    # from the Jupyter kernel; that backend is only valid inside IPython and makes a
+    # plain `import matplotlib` raise. When saving (headless), force Agg BEFORE import.
+    if save is not None:
+        os.environ["MPLBACKEND"] = "Agg"
     import matplotlib
     if save is not None:
         matplotlib.use("Agg")  # no display needed when saving
