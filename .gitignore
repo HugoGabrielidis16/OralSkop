@@ -1,6 +1,6 @@
 # ── OralSkop (root) ─────────────────────────────────────────────
-# Most build artifacts live under ai/ and are also covered by ai/.gitignore.
-# These root-level patterns make the repo safe to commit from anywhere.
+# Local docs / private notes (not for repo)
+z-ignore/
 
 # Raw datasets (large; downloaded, not version-controlled)
 ai/datasets/
@@ -15,10 +15,14 @@ wandb/
 *.onnx
 *.engine
 
-# ── Python / uv ─────────────────────────────────────────────────
+# ── Python ──────────────────────────────────────────────────────
 .venv/
+venv/
+env/
 __pycache__/
 *.py[cod]
+*.pyc
+*.pyo
 *.egg-info/
 .eggs/
 build/
@@ -28,6 +32,13 @@ dist/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+
+# ── Secrets ─────────────────────────────────────────────────────
+.env
+
+# ── Frontend ────────────────────────────────────────────────────
+node_modules/
+.next/
 
 # ── OS / editor ─────────────────────────────────────────────────
 .DS_Store
