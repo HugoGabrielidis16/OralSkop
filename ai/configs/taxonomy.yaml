@@ -1,0 +1,45 @@
+# Canonical dental-condition taxonomy for OralSkop.
+#
+# This is the SINGLE source of truth for class indices used to TRAIN the model.
+# Every dataset maps its native classes onto these canonical names (see
+# configs/data/<dataset>.yaml). The list is designed to GROW as new datasets are
+# added — append new conditions at the end to keep existing indices stable, then
+# bump `version`.
+#
+# `index` is the integer class id emitted into the YOLO label files and written to
+# the generated data.yaml `names:` mapping. Keep indices contiguous from 0.
+
+version: 2
+
+classes:
+  - index: 0
+    name: caries
+    description: Tooth decay / carious lesion (all subtypes collapsed).
+  - index: 1
+    name: abrasion
+    description: Non-carious tooth-surface loss (abrasion / wear).
+  - index: 2
+    name: filling
+    description: Existing restoration / filling material.
+  - index: 3
+    name: crown
+    description: Prosthetic crown.
+  - index: 4
+    name: calculus
+    description: Tartar / mineralized dental plaque.
+  - index: 5
+    name: gingivitis
+    description: Gum inflammation (red/swollen gingiva).
+  - index: 6
+    name: plaque
+    description: Soft dental plaque / biofilm.
+
+# --- Reserved for future datasets (uncomment + append, do not reorder) ---
+#  - index: 7
+#    name: discoloration       # stain
+#  - index: 8
+#    name: missing_tooth
+#  - index: 9
+#    name: implant
+#  - index: 10
+#    name: fracture

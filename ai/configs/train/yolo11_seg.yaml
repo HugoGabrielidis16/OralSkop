@@ -1,0 +1,36 @@
+# YOLO11-seg training configuration for OralSkop.
+# Consumed by src/oralskop/train/train.py. Any key here can be overridden on the CLI
+# with `--override key=value` (e.g. `--override epochs=1 device=cpu`).
+
+# Path to the generated dataset descriptor (produced by scripts/prepare_alphadent.py).
+data: data/alphadent/data.yaml
+
+# Pretrained checkpoint to fine-tune from. n/s/m/l/x trade speed for accuracy.
+model: yolo11m-seg.pt
+
+# Ultralytics train() arguments ------------------------------------------------
+epochs: 100
+imgsz: 960            # AlphaDent photos are high-res; authors used 640 and 960
+batch: 16            # auto-batch on GPU if set to -1
+device: 0            # 0 / "0,1" for GPU, "cpu" for smoke tests, "mps" on Apple
+workers: 8
+seed: 42
+patience: 30          # early-stopping patience
+optimizer: auto
+cos_lr: true
+# Outputs land in Ultralytics' default runs/segment/<name>/.
+name: yolo11m_seg_alphadent
+exist_ok: false
+resume: false
+
+# Augmentation — intraoral photos vary in framing/lighting; helps rare classes.
+hsv_h: 0.015
+hsv_s: 0.7
+hsv_v: 0.4
+degrees: 10.0
+translate: 0.1
+scale: 0.5
+fliplr: 0.5
+flipud: 0.0          # mouths have up/down orientation; keep off
+mosaic: 1.0
+close_mosaic: 10     # disable mosaic for the last N epochs
