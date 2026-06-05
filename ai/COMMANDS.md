@@ -152,6 +152,42 @@ reusable on their own for custom loops, EDA, or the future SAM2 stage.
 
 ---
 
+## 3d. Qualitatively test a torchseg model (raw | prediction | ground truth)
+
+Samples N images, runs a trained checkpoint on them, and shows a three-panel comparison
+per image — **raw image · model prediction · ground truth** — with a shared class legend
+and per-image foreground mIoU.
+
+**In a Jupyter notebook (Python cell — renders inline):**
+
+```python
+from oralskop.torchseg.test import predict_and_show
+predict_and_show(
+    weights="runs/seg/deeplabv3_alphadent/best.pt",
+    datasets=["alphadent"],
+    arch="deeplabv3_resnet50", imgsz=512, device="cuda",
+    num_imgs=8, split="val",
+)
+```
+
+The checkpoint stores its own `arch` / `class_names`, so those args are just fallbacks.
+Inline display only works when called from a Python cell (the kernel process). A bare
+`!python -m …` subprocess can't draw into the notebook — use `--save` for that:
+
+**Headless / CLI (writes a PNG):**
+
+```bash
+uv run python -m oralskop.torchseg.test --datasets alphadent \
+    --weights runs/seg/deeplabv3_alphadent/best.pt \
+    --num_imgs 8 --split val --save runs/seg/test_preds
+```
+
+Args: `--datasets`, `--weights`, `--num_imgs` (alias `--num`), `--split`, `--seed`,
+`--alpha` (overlay opacity), `--save DIR`, and `--override arch=… imgsz=… device=…`.
+Without `--weights` it runs an untrained head (pipeline smoke test only).
+
+---
+
 ## 4. Run on the cluster (SLURM + Apptainer)
 
 ```bash
@@ -266,6 +302,7 @@ Needs a small one-time converter, then it's config-only forever after:
 | Train YOLO (full)        | `uv run python -m oralskop.train.train --config configs/train/yolo11_seg.yaml` |
 | Train YOLO (smoke, CPU)  | `… --override model=yolo11n-seg.pt epochs=1 imgsz=320 device=cpu` |
 | Train torch seg (merged) | `uv run python -m oralskop.torchseg.train --config configs/train/seg_torch.yaml --datasets alphadent bmc_oral_health` |
+| Test torch seg (visual)  | `uv run python -m oralskop.torchseg.test --datasets alphadent --weights <best.pt> --num_imgs 8 --save runs/seg/test_preds` |
 | Evaluate                 | `uv run python -m oralskop.eval.evaluate --weights <best.pt> --data data/alphadent/data.yaml` |
 | Visualize masks          | `uv run python -m oralskop.viz.visualize --dataset alphadent --num_imgs 12` |
 | Build container          | `apptainer build oralskop.sif scripts/apptainer.def` |
