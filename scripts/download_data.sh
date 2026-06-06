@@ -1,18 +1,28 @@
 #!/usr/bin/env bash
-# Download the AlphaDent dataset from S3 into ai/dataset/AlphaDent/.
-# Run once after git clone, from the project root:
+# Push the AlphaDent dataset from this machine to a remote SageMaker instance.
+# Run from the PROJECT ROOT on your local machine (not on SageMaker):
 #
-#   bash scripts/download_data.sh
-#   bash scripts/download_data.sh s3://my-other-bucket/OralSkop/dataset/AlphaDent
+#   bash scripts/push_data.sh ubuntu@<sagemaker-ip>
+#   bash scripts/push_data.sh ec2-user@<sagemaker-ip> ~/.ssh/my-key.pem
 #
-# On SageMaker the IAM role attached to the instance gives S3 access automatically.
+# Arguments:
+#   $1  user@host  — SSH target of your SageMaker instance (required)
+#   $2  key_path   — path to your .pem key (optional; omit if using ssh-agent)
 
 set -euo pipefail
 
-S3_URI="${1:-s3://YOUR-BUCKET/OralSkop/dataset/AlphaDent}"
-DEST="ai/dataset/AlphaDent"
+if [[ $# -lt 1 ]]; then
+    echo "Usage: bash scripts/push_data.sh user@host [/path/to/key.pem]"
+    exit 1
+fi
 
-echo "Downloading AlphaDent dataset from ${S3_URI} → ${DEST}/"
-mkdir -p "${DEST}"
-aws s3 sync "${S3_URI}" "${DEST}/"
-echo "Done. $(find "${DEST}" -type f | wc -l) files downloaded."
+REMOTE="$1"
+KEY_OPT=""
+[[ $# -ge 2 ]] && KEY_OPT="-e \"ssh -i $2\""
+
+SRC="ai/dataset/AlphaDent/"
+DEST="${REMOTE}:~/OralSkop/ai/dataset/AlphaDent/"
+
+echo "Syncing ${SRC} → ${DEST}"
+eval rsync -avz --progress ${KEY_OPT} "${SRC}" "${DEST}"
+echo "Done."
