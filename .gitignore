@@ -39,3 +39,4 @@ dist/
 .idea/
 .vscode/
 *.swp
+eval_results/
