@@ -1,0 +1,4 @@
+# Ignore the actual data — fetched via scripts/download_data.sh
+*
+!.gitignore
+!dataset.yaml
