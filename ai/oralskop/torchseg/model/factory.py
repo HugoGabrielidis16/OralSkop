@@ -66,7 +66,7 @@ def _build_smp_model(num_classes: int, arch: str, pretrained: bool) -> nn.Module
                 "The installed segmentation_models_pytorch does not expose Segformer. "
                 "Upgrade the explore extra or use deeplabv3plus_resnet50."
             )
-        encoder = arch.removeprefix("segformer_").replace("_", "-")
+        encoder = arch.removeprefix("segformer_")
         model = smp.Segformer(
             encoder_name=encoder,
             encoder_weights=encoder_weights,
