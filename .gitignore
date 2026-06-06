@@ -10,10 +10,15 @@ ai/data/
 
 # Training outputs / weights / experiment logs
 ai/runs/
+runs/
+runs.zip
 wandb/
 *.pt
 *.onnx
 *.engine
+
+# Raw dataset zips
+Datasets/
 
 # ── Python / uv ─────────────────────────────────────────────────
 .venv/
