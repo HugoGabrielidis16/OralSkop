@@ -23,7 +23,7 @@ cache_dir: null
 limit: null                                # cap rows for smoke tests
 
 # --- model ------------------------------------------------------------------
-arch: convnext_tiny                        # convnext_tiny | resnet50 | efficientnet_v2_s
+arch: convnext_tiny                        # convnext_tiny/small/base/large | resnet50 | efficientnet_v2_s/m/l
 pretrained: true
 imgsz: 224
 
