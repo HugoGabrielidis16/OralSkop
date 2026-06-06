@@ -15,6 +15,12 @@ cd ai
 uv sync
 ```
 
+Optional exploration stack for Albumentations, SMP architectures, and LoRA:
+
+```bash
+uv sync --extra explore
+```
+
 **On the GPU cluster**, after `uv sync`, install the CUDA-matched PyTorch build
 (replace `cu124` with your cluster's CUDA version):
 
@@ -142,13 +148,167 @@ uv run python -m oralskop.torchseg.train --config configs/train/seg_torch.yaml \
 ```
 
 Key config (`configs/train/seg_torch.yaml`): `arch`
-(deeplabv3_resnet50 / deeplabv3_mobilenet_v3_large / fcn_resnet50 / lraspp_mobilenet_v3_large),
+(deeplabv3_resnet50 / deeplabv3_mobilenet_v3_large / fcn_resnet50 /
+lraspp_mobilenet_v3_large / unet / deeplabv3plus_resnet50 /
+deeplabv3plus_efficientnet-b4 / segformer_mit_b2 / segformer_mit_b3),
 `imgsz`, `batch`, `lr`, `class_weights: auto` (median-frequency balancing for imbalance),
-`limit_batches` (debug). Reports **val mIoU** + pixel accuracy; saves `best.pt`/`last.pt`
-to `runs/seg/<name>/`.
+`loss` (ce / ce_dice / focal / focal_dice / lovasz), `optimizer` (adamw / sgd),
+`scheduler` (none / cosine / poly), `warmup_epochs`, `aug` (none / flip / light / strong),
+`lora`, and `limit_batches` (debug). Reports **val fg_mIoU** + mIoU + dice + pixel
+accuracy; saves `best.pt`/`last.pt` to `runs/seg/<name>/`. By default `exist_ok: false`
+**auto-increments** the run dir
+(`<name>`, `<name>2`, `<name>3`, …) so a re-run never overwrites old checkpoints; set
+`exist_ok=true` to reuse/overwrite `runs/seg/<name>/`.
+
+Focused recipe smoke tests:
+
+```bash
+# Scheduler + loss + strong augmentation + SGD on the torchvision baseline
+uv run python -m oralskop.torchseg.train --config configs/train/seg_torch.yaml \
+    --override epochs=1 limit_batches=3 device=cpu imgsz=128 batch=2 pretrained=false \
+              scheduler=cosine warmup_epochs=1 loss=ce_dice aug=strong optimizer=sgd save_model=false
+
+# SMP DeepLabV3+ contender
+uv run python -m oralskop.torchseg.train --config configs/train/deeplabv3plus.yaml \
+    --override epochs=1 limit_batches=3 device=cpu imgsz=128 batch=2 pretrained=false save_model=false
+
+# SegFormer full fine-tune vs. LoRA
+uv run python -m oralskop.torchseg.train --config configs/train/segformer.yaml \
+    --override epochs=1 limit_batches=3 device=cpu imgsz=128 batch=2 pretrained=false save_model=false
+uv run python -m oralskop.torchseg.train --config configs/train/segformer.yaml \
+    --override epochs=1 limit_batches=3 device=cpu imgsz=128 batch=2 pretrained=false lora=true save_model=false
+```
+
+The DeepLabV3+, SegFormer, `aug=light|strong`, non-CE losses, and LoRA paths require
+`uv sync --extra explore`.
+
+### YOLO-to-semantic bridge
+
+After training a YOLO11-seg checkpoint, rasterize its instance predictions onto the same
+AlphaDent val split and compute the torchseg semantic metrics (`fg_mIoU`, per-class IoU,
+dice, pixel accuracy):
+
+```bash
+uv run python -m oralskop.bench.semantic_from_yolo \
+    --weights runs/segment/yolo11m_seg_alphadent/weights/best.pt \
+    --data data/alphadent/data.yaml --split val --imgsz 512 --infer-imgsz 960 \
+    --out runs/segment/yolo11m_seg_alphadent/semantic_metrics.json
+```
+
+Use this number for the cross-paradigm ranking, alongside YOLO's native mask mAP from
+section 3.
 
 The `MergedSegDataset` / `YoloSegDataset` classes (`oralskop/torchseg/dataset.py`) are
 reusable on their own for custom loops, EDA, or the future SAM2 stage.
+
+### Weights & Biases logging (optional)
+
+The torchseg loop can stream metrics + live prediction overlays to W&B. One-time install:
+
+```bash
+uv sync --extra wandb
+```
+
+Authenticate (in the Jupyter notebook, before launching training) — either set the key
+as an env var so the `!`-subprocess inherits it, or log in once (writes `~/.netrc`):
+
+```python
+import os; os.environ["WANDB_API_KEY"] = "<your-token>"   # option A (Python cell)
+```
+```bash
+!wandb login <your-token>                                  # option B (persists)
+```
+
+Then enable it on the run:
+
+```bash
+uv run python -m oralskop.torchseg.train --config configs/train/seg_torch.yaml \
+    --datasets alphadent --override device=0 wandb=true wandb_project=oralskop-seg
+```
+
+Config knobs (`seg_torch.yaml`): `wandb` (on/off), `wandb_project`, `wandb_entity`,
+`wandb_images` (val prediction overlays logged each validation; `0` = none). Logged:
+`train/loss`, `train/pixel_acc`, `lr`, `val/mIoU` + `val/fg_mIoU` + dice/acc, per-class
+`val_iou/<class>`, and interactive prediction vs. ground-truth masks. The run name matches
+the (auto-incremented) `runs/seg/<name>` dir. If wandb isn't installed or you're not
+logged in, training prints a warning and continues **without** it (never crashes).
+
+---
+
+## 3d. Qualitatively test a torchseg model (raw | prediction | ground truth)
+
+Samples N images, runs a trained checkpoint on them, and shows a three-panel comparison
+per image — **raw image · model prediction · ground truth** — with a shared class legend
+and per-image foreground mIoU.
+
+**In a Jupyter notebook (Python cell — renders inline):**
+
+```python
+from oralskop.torchseg.test import predict_and_show
+predict_and_show(
+    weights="runs/seg/deeplabv3_alphadent/best.pt",
+    datasets=["alphadent"],
+    arch="deeplabv3_resnet50", imgsz=512, device="cuda",
+    num_imgs=8, split="val",
+)
+```
+
+The checkpoint stores its own `arch` / `class_names`, so those args are just fallbacks.
+Inline display only works when called from a Python cell (the kernel process). A bare
+`!python -m …` subprocess can't draw into the notebook — use `--save` for that:
+
+**Headless / CLI (writes a PNG):**
+
+```bash
+uv run python -m oralskop.torchseg.test --datasets alphadent \
+    --weights runs/seg/deeplabv3_alphadent/best.pt \
+    --num_imgs 8 --split val --save runs/seg/test_preds
+```
+
+Args: `--datasets`, `--weights`, `--num_imgs` (alias `--num`), `--split`, `--seed`,
+`--alpha` (overlay opacity), `--save DIR`, and `--override arch=… imgsz=… device=…`.
+Without `--weights` it runs an untrained head (pipeline smoke test only).
+
+---
+
+## 3e. Serve a torchseg model as an HTTP endpoint (FastAPI)
+
+Wraps a trained **torchseg** checkpoint in a FastAPI server. The model needs nothing
+but its `.pt` file — `arch` / `num_classes` / `class_names` are read from the checkpoint.
+Install the serving deps once: `uv sync --extra serve`.
+
+Endpoints: `GET /` (browser upload form), `GET /health`, `GET /info`,
+`POST /predict` (multipart `file=@photo.jpg` → JSON: per-component class name,
+confidence, bbox, area + a per-class coverage summary), `POST /predict/overlay`
+(→ annotated PNG with colored masks).
+
+**In a Jupyter notebook (share a public URL with a friend via ngrok):**
+
+```python
+from oralskop.serve.notebook import serve
+server = serve(
+    weights="runs/seg/deeplabv3_alphadent/best.pt",
+    device="cuda",                          # or "cpu"
+    ngrok_authtoken="<token>",              # https://dashboard.ngrok.com (free)
+)
+print(server.url)   # public https URL; open <url>/ in a browser or POST to <url>/predict
+server.stop()       # shut down server + tunnel
+```
+
+The server runs on a background thread, so the kernel stays interactive. Without a
+token it serves locally only (`http://localhost:8000` — reachable on your LAN, not the
+public internet). See `notebooks/serve_api.ipynb` for the full walkthrough.
+
+**Standalone (no notebook):**
+
+```bash
+uv run python -m oralskop.serve.app \
+    --weights runs/seg/deeplabv3_alphadent/best.pt --device cuda --port 8000
+# then: curl -F file=@photo.jpg http://localhost:8000/predict
+```
+
+Args: `--weights`, `--arch` (fallback if no metadata), `--imgsz`, `--device`, `--conf`
+(min confidence per detection), `--min-area-frac`, `--host`, `--port`.
 
 ---
 
@@ -310,9 +470,11 @@ Needs a small one-time converter, then it's config-only forever after:
 | Train YOLO (full)        | `uv run python -m oralskop.train.train --config configs/train/yolo11_seg.yaml` |
 | Train YOLO (smoke, CPU)  | `… --override model=yolo11n-seg.pt epochs=1 imgsz=320 device=cpu` |
 | Train torch seg (merged) | `uv run python -m oralskop.torchseg.train --config configs/train/seg_torch.yaml --datasets alphadent bmc_oral_health` |
+| Test torch seg (visual)  | `uv run python -m oralskop.torchseg.test --datasets alphadent --weights <best.pt> --num_imgs 8 --save runs/seg/test_preds` |
 | Train classifier (manifest) | `uv run python -m oralskop.clf.train --config configs/clf/manifest_clf.yaml` |
 | Eval classifier (test)   | `uv run python -m oralskop.clf.eval --config configs/clf/manifest_clf.yaml --weights runs/clf/clf_coarse/best.pt` |
 | Evaluate                 | `uv run python -m oralskop.eval.evaluate --weights <best.pt> --data data/alphadent/data.yaml` |
 | Visualize masks          | `uv run python -m oralskop.viz.visualize --dataset alphadent --num_imgs 12` |
+| Serve as API             | `uv run python -m oralskop.serve.app --weights <best.pt> --port 8000` (or `serve()` in a notebook) |
 | Build container          | `apptainer build oralskop.sif scripts/apptainer.def` |
 | Submit cluster job       | `sbatch scripts/train.sbatch` |

@@ -45,4 +45,4 @@ PY
 
 echo ""
 echo ">> Done. Train with:"
-echo "   cd $AI_DIR && uv run python -m oralskop.train.train --config configs/train/yolo11_seg.yaml"
+#echo "   cd $AI_DIR && uv run python -m oralskop.train.train --config configs/train/yolo11_seg.yaml"
