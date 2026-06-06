@@ -15,6 +15,12 @@ cd ai
 uv sync
 ```
 
+Optional exploration stack for Albumentations, SMP architectures, and LoRA:
+
+```bash
+uv sync --extra explore
+```
+
 **On the GPU cluster**, after `uv sync`, install the CUDA-matched PyTorch build
 (replace `cu124` with your cluster's CUDA version):
 
@@ -142,12 +148,55 @@ uv run python -m oralskop.torchseg.train --config configs/train/seg_torch.yaml \
 ```
 
 Key config (`configs/train/seg_torch.yaml`): `arch`
-(deeplabv3_resnet50 / deeplabv3_mobilenet_v3_large / fcn_resnet50 / lraspp_mobilenet_v3_large),
+(deeplabv3_resnet50 / deeplabv3_mobilenet_v3_large / fcn_resnet50 /
+lraspp_mobilenet_v3_large / unet / deeplabv3plus_resnet50 /
+deeplabv3plus_efficientnet-b4 / segformer_mit_b2 / segformer_mit_b3),
 `imgsz`, `batch`, `lr`, `class_weights: auto` (median-frequency balancing for imbalance),
-`limit_batches` (debug). Reports **val mIoU** + pixel accuracy; saves `best.pt`/`last.pt`
-to `runs/seg/<name>/`. By default `exist_ok: false` **auto-increments** the run dir
+`loss` (ce / ce_dice / focal / focal_dice / lovasz), `optimizer` (adamw / sgd),
+`scheduler` (none / cosine / poly), `warmup_epochs`, `aug` (none / flip / light / strong),
+`lora`, and `limit_batches` (debug). Reports **val fg_mIoU** + mIoU + dice + pixel
+accuracy; saves `best.pt`/`last.pt` to `runs/seg/<name>/`. By default `exist_ok: false`
+**auto-increments** the run dir
 (`<name>`, `<name>2`, `<name>3`, …) so a re-run never overwrites old checkpoints; set
 `exist_ok=true` to reuse/overwrite `runs/seg/<name>/`.
+
+Focused recipe smoke tests:
+
+```bash
+# Scheduler + loss + strong augmentation + SGD on the torchvision baseline
+uv run python -m oralskop.torchseg.train --config configs/train/seg_torch.yaml \
+    --override epochs=1 limit_batches=3 device=cpu imgsz=128 batch=2 pretrained=false \
+              scheduler=cosine warmup_epochs=1 loss=ce_dice aug=strong optimizer=sgd save_model=false
+
+# SMP DeepLabV3+ contender
+uv run python -m oralskop.torchseg.train --config configs/train/deeplabv3plus.yaml \
+    --override epochs=1 limit_batches=3 device=cpu imgsz=128 batch=2 pretrained=false save_model=false
+
+# SegFormer full fine-tune vs. LoRA
+uv run python -m oralskop.torchseg.train --config configs/train/segformer.yaml \
+    --override epochs=1 limit_batches=3 device=cpu imgsz=128 batch=2 pretrained=false save_model=false
+uv run python -m oralskop.torchseg.train --config configs/train/segformer.yaml \
+    --override epochs=1 limit_batches=3 device=cpu imgsz=128 batch=2 pretrained=false lora=true save_model=false
+```
+
+The DeepLabV3+, SegFormer, `aug=light|strong`, non-CE losses, and LoRA paths require
+`uv sync --extra explore`.
+
+### YOLO-to-semantic bridge
+
+After training a YOLO11-seg checkpoint, rasterize its instance predictions onto the same
+AlphaDent val split and compute the torchseg semantic metrics (`fg_mIoU`, per-class IoU,
+dice, pixel accuracy):
+
+```bash
+uv run python -m oralskop.bench.semantic_from_yolo \
+    --weights runs/segment/yolo11m_seg_alphadent/weights/best.pt \
+    --data data/alphadent/data.yaml --split val --imgsz 512 --infer-imgsz 960 \
+    --out runs/segment/yolo11m_seg_alphadent/semantic_metrics.json
+```
+
+Use this number for the cross-paradigm ranking, alongside YOLO's native mask mAP from
+section 3.
 
 The `MergedSegDataset` / `YoloSegDataset` classes (`oralskop/torchseg/dataset.py`) are
 reusable on their own for custom loops, EDA, or the future SAM2 stage.

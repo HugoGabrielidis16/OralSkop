@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import bisect
 import json
+import math
 import time
 from pathlib import Path
 
@@ -28,6 +29,8 @@ _NORM_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
 from oralskop.config import apply_overrides, load_yaml
 from oralskop.torchseg.dataset import AI_ROOT, build_seg_dataset
+from oralskop.torchseg.losses import build_criterion
+from oralskop.torchseg.lora import apply_lora, parameter_counts
 from oralskop.torchseg.model import build_model, has_aux
 from oralskop.viz.visualize import color_for, draw_legend  # shared BGR palette + legend
 
@@ -148,6 +151,53 @@ def class_weights_from(dataset, num_classes) -> torch.Tensor:
     med = freq[freq > 0].median()
     w = torch.where(freq > 0, med / freq.clamp(min=1e-6), torch.zeros_like(freq))
     return w
+
+
+def build_optimizer(cfg: dict, model: torch.nn.Module) -> torch.optim.Optimizer:
+    """Build the selected optimizer while preserving AdamW as the default."""
+    name = str(cfg.get("optimizer", "adamw")).lower()
+    lr = cfg.get("lr", 2e-4)
+    weight_decay = cfg.get("weight_decay", 1e-4)
+    if name == "adamw":
+        return torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+    if name == "sgd":
+        return torch.optim.SGD(
+            model.parameters(),
+            lr=lr,
+            momentum=cfg.get("momentum", 0.9),
+            weight_decay=weight_decay,
+            nesterov=bool(cfg.get("nesterov", False)),
+        )
+    raise ValueError("Unknown optimizer {!r}. Options: adamw, sgd".format(name))
+
+
+def build_scheduler(cfg: dict, optimizer: torch.optim.Optimizer):
+    """Build an epoch-stepped LR scheduler with optional linear warmup."""
+    name = str(cfg.get("scheduler", "none")).lower()
+    epochs = int(cfg.get("epochs", 50))
+    warmup_epochs = int(cfg.get("warmup_epochs", 0) or 0)
+    min_lr_factor = float(cfg.get("min_lr_factor", 0.0))
+    poly_power = float(cfg.get("poly_power", 0.9))
+
+    if name not in {"none", "cosine", "poly"}:
+        raise ValueError("Unknown scheduler {!r}. Options: none, cosine, poly".format(name))
+    if name == "none" and warmup_epochs <= 0:
+        return None
+
+    def lr_lambda(epoch_idx: int) -> float:
+        if warmup_epochs > 0 and epoch_idx < warmup_epochs:
+            return max((epoch_idx + 1) / warmup_epochs, 1e-8)
+        if name == "none":
+            return 1.0
+        progress_epochs = max(epochs - warmup_epochs, 1)
+        progress = min(max((epoch_idx - warmup_epochs + 1) / progress_epochs, 0.0), 1.0)
+        if name == "cosine":
+            return min_lr_factor + (1.0 - min_lr_factor) * 0.5 * (1.0 + math.cos(math.pi * progress))
+        if name == "poly":
+            return min_lr_factor + (1.0 - min_lr_factor) * ((1.0 - progress) ** poly_power)
+        return 1.0
+
+    return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
 
 
 def wandb_setup(cfg: dict, run_name: str, out_dir: Path):
@@ -310,9 +360,10 @@ def main(argv: list[str] | None = None) -> None:
     torch.manual_seed(cfg.get("seed", 42))
 
     train_ds = build_seg_dataset(cfg["datasets"], split=cfg.get("split_train", "train"),
-                                 imgsz=cfg.get("imgsz", 512), augment=True)
+                                 imgsz=cfg.get("imgsz", 512), augment=True,
+                                 aug=cfg.get("aug", "flip"))
     val_ds = build_seg_dataset(cfg["datasets"], split=cfg.get("split_val", "val"),
-                               imgsz=cfg.get("imgsz", 512), augment=False)
+                               imgsz=cfg.get("imgsz", 512), augment=False, aug="none")
     num_classes = train_ds.num_seg_classes
     print(f"Datasets {cfg['datasets']}: train={len(train_ds)} val={len(val_ds)} "
           f"| {num_classes} seg classes (0=bg) | device={device.type}")
@@ -326,15 +377,32 @@ def main(argv: list[str] | None = None) -> None:
     model = build_model(num_classes, arch=cfg.get("arch", "deeplabv3_resnet50"),
                         pretrained=cfg.get("pretrained", True)).to(device)
     arch = cfg.get("arch", "deeplabv3_resnet50")
+    if bool(cfg.get("lora", False)):
+        model = apply_lora(
+            model,
+            r=cfg.get("lora_r", 8),
+            alpha=cfg.get("lora_alpha", 16),
+            targets=cfg.get("lora_targets"),
+        ).to(device)
+    trainable_params, total_params = parameter_counts(model)
+    print(f"Parameters: trainable={trainable_params:,} total={total_params:,} "
+          f"({trainable_params / max(total_params, 1):.1%} trainable)")
 
     weights = None
     if cfg.get("class_weights") == "auto":
         print("Computing class weights (median-frequency balancing)...")
-        weights = class_weights_from(train_ds, num_classes).to(device)
-    criterion = torch.nn.CrossEntropyLoss(weight=weights)
+        weight_ds = build_seg_dataset(
+            cfg["datasets"],
+            split=cfg.get("split_train", "train"),
+            imgsz=cfg.get("imgsz", 512),
+            augment=False,
+            aug="none",
+        )
+        weights = class_weights_from(weight_ds, num_classes).to(device)
+    criterion = build_criterion(cfg.get("loss", "ce"), class_weights=weights)
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.get("lr", 2e-4),
-                                  weight_decay=cfg.get("weight_decay", 1e-4))
+    optimizer = build_optimizer(cfg, model)
+    scheduler = build_scheduler(cfg, optimizer)
     use_amp = bool(cfg.get("amp", True)) and device.type == "cuda"
     scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
     aux_w = cfg.get("aux_loss_weight", 0.4) if has_aux(arch) else 0.0
@@ -401,6 +469,7 @@ def main(argv: list[str] | None = None) -> None:
         train_acc = train_correct / max(train_total, 1)
 
         line = f"epoch {epoch:3d}/{cfg.get('epochs', 50)}  loss {train_loss:.4f}  train_acc {train_acc:.4f}"
+        saved_checkpoints = []
         if epoch % cfg.get("val_interval", 1) == 0:
             m = evaluate(
                 model,
@@ -427,6 +496,8 @@ def main(argv: list[str] | None = None) -> None:
                 **m,
                 "class_names": class_names,
                 "lr": optimizer.param_groups[0]["lr"],
+                "trainable_params": trainable_params,
+                "total_params": total_params,
                 "seconds": time.time() - t0,
             }
             with metrics_path.open("a") as f:
@@ -435,20 +506,29 @@ def main(argv: list[str] | None = None) -> None:
                 torch.save({"model": model.state_dict(), "arch": arch,
                             "num_classes": num_classes, "class_names": train_ds.class_names,
                             "epoch": epoch, "metrics": m}, out_dir / "last.pt")
-            if m["miou"] > best_miou:
-                best_miou = m["miou"]
+                saved_checkpoints.append("last.pt")
+            if m["fg_miou"] > best_miou:
+                best_miou = m["fg_miou"]
                 if save_model:
                     torch.save({"model": model.state_dict(), "arch": arch,
                                 "num_classes": num_classes, "class_names": train_ds.class_names,
-                                "epoch": epoch, "miou": best_miou, "metrics": m}, out_dir / "best.pt")
+                                "epoch": epoch, "fg_miou": best_miou, "metrics": m}, out_dir / "best.pt")
+                    saved_checkpoints.append("best.pt")
                 line += "  *best*"
+        if saved_checkpoints:
+            line += f"  checkpoint_epoch={epoch} saved {','.join(saved_checkpoints)}"
+        else:
+            line += f"  checkpoint_epoch={epoch} saved none"
+        if scheduler is not None:
+            scheduler.step()
         tqdm.write(f"{line}  ({time.time() - t0:.0f}s)")
         if cfg.get("log_per_class", True) and epoch % cfg.get("val_interval", 1) == 0:
             tqdm.write("  per_class " + format_per_class(m, class_names))
 
         if wb is not None:
             log = {"train/loss": train_loss, "train/pixel_acc": train_acc,
-                   "lr": optimizer.param_groups[0]["lr"], "epoch_seconds": time.time() - t0}
+                   "lr": optimizer.param_groups[0]["lr"], "epoch_seconds": time.time() - t0,
+                   "params/trainable": trainable_params, "params/total": total_params}
             if epoch % cfg.get("val_interval", 1) == 0:
                 log.update({
                     "val/loss": m["val_loss"],
@@ -465,17 +545,17 @@ def main(argv: list[str] | None = None) -> None:
                 if wandb_n_images > 0:
                     log["val/predictions"] = wandb_prediction_images(
                         wb, model, val_ds, device, wandb_n_images, seg_labels, num_classes)
-                wb.summary["best_val_mIoU"] = best_miou
+                wb.summary["best_val_fg_mIoU"] = best_miou
             wb.log(log, step=epoch)
 
     if wb is not None:
-        wb.summary["best_val_mIoU"] = best_miou
+        wb.summary["best_val_fg_mIoU"] = best_miou
         wb.finish()
 
     if save_model:
-        print(f"\nDone. Best val mIoU {best_miou:.4f}. Weights in {out_dir}")
+        print(f"\nDone. Best val fg_mIoU {best_miou:.4f}. Weights in {out_dir}")
     else:
-        print(f"\nDone. Best val mIoU {best_miou:.4f}. Model saving disabled.")
+        print(f"\nDone. Best val fg_mIoU {best_miou:.4f}. Model saving disabled.")
     print(f"Metrics log: {metrics_path}")
 
 

@@ -1,0 +1,44 @@
+# DeepLabV3+ semantic-segmentation contender.
+# Requires: uv sync --extra explore
+
+datasets: [alphadent]
+split_train: train
+split_val: val
+
+arch: deeplabv3plus_resnet50
+pretrained: true
+
+imgsz: 512
+epochs: 50
+batch: 12
+lr: 0.0003
+weight_decay: 0.0001
+optimizer: sgd
+momentum: 0.9
+nesterov: false
+scheduler: poly
+warmup_epochs: 3
+min_lr_factor: 0.0
+poly_power: 0.9
+loss: ce_dice
+aug: strong
+workers: 8
+device: 0
+amp: true
+aux_loss_weight: 0.0
+class_weights: auto
+lora: false
+val_interval: 1
+progress: true
+log_per_class: true
+save_model: true
+seed: 42
+
+out: runs/seg
+name: deeplabv3plus_resnet50_alphadent
+exist_ok: false
+
+wandb: false
+wandb_project: oralskop-seg
+wandb_entity: null
+wandb_images: 8

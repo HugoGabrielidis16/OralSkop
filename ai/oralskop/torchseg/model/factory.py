@@ -18,7 +18,64 @@ _BUILDERS = {
     "fcn_resnet50": (tvseg.fcn_resnet50, True),
     "lraspp_mobilenet_v3_large": (tvseg.lraspp_mobilenet_v3_large, False),  # no aux head
     "unet": (None, False),  # custom, from-scratch; no torchvision builder / pretrained weights
+    "deeplabv3plus_resnet50": (None, False),
+    "deeplabv3plus_efficientnet-b4": (None, False),
+    "segformer_mit_b2": (None, False),
+    "segformer_mit_b3": (None, False),
 }
+
+
+class SmpDictWrapper(nn.Module):
+    """Adapt SMP's bare tensor output to the project's dict output contract."""
+
+    def __init__(self, model: nn.Module):
+        super().__init__()
+        self.model = model
+
+    def forward(self, x):
+        return {"out": self.model(x)}
+
+
+def _import_smp():
+    try:
+        import segmentation_models_pytorch as smp
+    except ImportError as exc:
+        raise ImportError(
+            "SMP architectures require the optional explore dependencies. "
+            "Install with `uv sync --extra explore`."
+        ) from exc
+    return smp
+
+
+def _build_smp_model(num_classes: int, arch: str, pretrained: bool) -> nn.Module:
+    smp = _import_smp()
+    encoder_weights = "imagenet" if pretrained else None
+    if arch.startswith("deeplabv3plus_"):
+        encoder = arch.removeprefix("deeplabv3plus_")
+        model = smp.DeepLabV3Plus(
+            encoder_name=encoder,
+            encoder_weights=encoder_weights,
+            in_channels=3,
+            classes=num_classes,
+        )
+        return SmpDictWrapper(model)
+
+    if arch.startswith("segformer_"):
+        if not hasattr(smp, "Segformer"):
+            raise RuntimeError(
+                "The installed segmentation_models_pytorch does not expose Segformer. "
+                "Upgrade the explore extra or use deeplabv3plus_resnet50."
+            )
+        encoder = arch.removeprefix("segformer_").replace("_", "-")
+        model = smp.Segformer(
+            encoder_name=encoder,
+            encoder_weights=encoder_weights,
+            in_channels=3,
+            classes=num_classes,
+        )
+        return SmpDictWrapper(model)
+
+    raise ValueError(f"Unsupported SMP arch {arch!r}")
 
 
 def build_model(num_classes: int, arch: str = "deeplabv3_resnet50", pretrained: bool = True) -> nn.Module:
@@ -32,6 +89,9 @@ def build_model(num_classes: int, arch: str = "deeplabv3_resnet50", pretrained: 
 
     if arch == "unet":
         return UNet(num_classes)  # trained from scratch; `pretrained` does not apply
+
+    if arch.startswith(("deeplabv3plus_", "segformer_")):
+        return _build_smp_model(num_classes, arch, pretrained)
 
     builder, has_aux_head = _BUILDERS[arch]
 
