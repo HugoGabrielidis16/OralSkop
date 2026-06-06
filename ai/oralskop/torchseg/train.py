@@ -12,10 +12,12 @@ and `--datasets a b` override the YAML.
 from __future__ import annotations
 
 import argparse
+import bisect
 import json
 import time
 from pathlib import Path
 
+import cv2
 import numpy as np
 import torch
 from tqdm.auto import tqdm
@@ -27,6 +29,7 @@ _NORM_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 from oralskop.config import apply_overrides, load_yaml
 from oralskop.torchseg.dataset import AI_ROOT, build_seg_dataset
 from oralskop.torchseg.model import build_model, has_aux
+from oralskop.viz.visualize import color_for, draw_legend  # shared BGR palette + legend
 
 
 @torch.no_grad()
@@ -179,24 +182,96 @@ def wandb_setup(cfg: dict, run_name: str, out_dir: Path):
 
 
 @torch.no_grad()
-def wandb_prediction_images(wb, model, dataset, device, n: int, seg_labels: dict[int, str]):
-    """Build N W&B Images with interactive prediction + ground-truth mask overlays.
+def _denorm_bgr(image: torch.Tensor) -> np.ndarray:
+    """Normalized [3,H,W] tensor -> HxWx3 uint8 BGR (cv2 convention, for drawing)."""
+    rgb = image.cpu().numpy().transpose(1, 2, 0) * _NORM_STD + _NORM_MEAN
+    rgb = (np.clip(rgb, 0.0, 1.0) * 255).astype(np.uint8)
+    return cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
 
-    Uses the first N (deterministic) val samples so the same images are tracked across
-    epochs. ``seg_labels`` maps pixel value -> name (0=background, class c -> c+1).
+
+def _seg_overlay_bgr(bgr: np.ndarray, mask: np.ndarray, alpha: float) -> np.ndarray:
+    """Blend the palette-colored seg mask onto a BGR image (background, 0, untouched)."""
+    out = bgr.copy()
+    for value in np.unique(mask):
+        if value == 0:
+            continue
+        color = np.array(color_for(int(value) - 1), dtype=np.float32)  # BGR palette
+        sel = mask == value
+        out[sel] = ((1 - alpha) * bgr[sel].astype(np.float32) + alpha * color).astype(np.uint8)
+    return out
+
+
+def _fg_miou(pred: np.ndarray, gt: np.ndarray, num_classes: int) -> float:
+    """Mean IoU over foreground classes present in the ground truth (NaN if none)."""
+    ious = []
+    for c in range(1, num_classes):
+        g = gt == c
+        if not g.any():
+            continue
+        p = pred == c
+        union = (p | g).sum()
+        ious.append((p & g).sum() / union if union else 0.0)
+    return float(np.mean(ious)) if ious else float("nan")
+
+
+def _title_bar(panel_bgr: np.ndarray, text: str, bar_h: int = 26) -> np.ndarray:
+    """Stack a black title bar with white text on top of a BGR panel."""
+    bar = np.zeros((bar_h, panel_bgr.shape[1], 3), dtype=np.uint8)
+    cv2.putText(bar, text, (8, bar_h - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.55,
+                (255, 255, 255), 1, cv2.LINE_AA)
+    return np.vstack([bar, panel_bgr])
+
+
+def _sample_stem(dataset, idx: int) -> str:
+    """Best-effort source filename stem for a (possibly merged/concat) dataset index."""
+    if hasattr(dataset, "samples"):
+        return Path(dataset.samples[idx][0]).stem
+    if hasattr(dataset, "datasets") and hasattr(dataset, "cumulative_sizes"):
+        d = bisect.bisect_right(dataset.cumulative_sizes, idx)
+        sub = dataset.datasets[d]
+        local = idx - (dataset.cumulative_sizes[d - 1] if d > 0 else 0)
+        if hasattr(sub, "samples"):
+            return Path(sub.samples[local][0]).stem
+    return f"#{idx}"
+
+
+def wandb_prediction_images(wb, model, dataset, device, n: int,
+                            seg_labels: dict[int, str], num_classes: int,
+                            alpha: float = 0.5):
+    """Build N annotated W&B Images: ``prediction | ground-truth`` side by side.
+
+    Everything is burned into the pixels so it's readable with no hover/toggling:
+    masks use the visualizer's palette, a class-color **legend** of the classes present
+    is drawn on the prediction panel, and each panel carries a title (the prediction
+    title also shows the per-image foreground mIoU). The image caption is the source
+    filename. Uses the first N (deterministic) val samples so the same images are
+    tracked across epochs. ``seg_labels`` maps pixel value -> name (0=bg, class c -> c+1).
     """
     model.eval()
+    # Legend wants taxonomy-id -> name; seg_labels is pixel-value -> name (id = value-1).
+    legend_names = {v - 1: name for v, name in seg_labels.items() if v != 0}
     images = []
     for i in range(min(n, len(dataset))):
         image, target = dataset[i]
         pred = model(image.unsqueeze(0).to(device))["out"].argmax(1)[0].cpu().numpy()
-        rgb = image.cpu().numpy().transpose(1, 2, 0) * _NORM_STD + _NORM_MEAN
-        rgb = (np.clip(rgb, 0.0, 1.0) * 255).astype(np.uint8)
-        images.append(wb.Image(rgb, masks={
-            "prediction": {"mask_data": pred.astype(np.uint8), "class_labels": seg_labels},
-            "ground_truth": {"mask_data": target.cpu().numpy().astype(np.uint8),
-                             "class_labels": seg_labels},
-        }))
+        gt = target.cpu().numpy()
+        bgr = _denorm_bgr(image)
+
+        pred_panel = _seg_overlay_bgr(bgr, pred, alpha)
+        gt_panel = _seg_overlay_bgr(bgr, gt, alpha)
+
+        # Burn a legend of the classes appearing in either mask onto the prediction panel.
+        present = sorted({int(v) - 1 for v in np.unique(pred) if v != 0}
+                         | {int(v) - 1 for v in np.unique(gt) if v != 0})
+        pred_panel = draw_legend(pred_panel, present, legend_names)
+
+        miou = _fg_miou(pred, gt, num_classes)
+        miou_txt = f"fg mIoU {miou:.2f}" if miou == miou else "no GT fg"
+        pred_panel = _title_bar(pred_panel, f"prediction  -  {miou_txt}")
+        gt_panel = _title_bar(gt_panel, "ground truth")
+
+        panel = cv2.cvtColor(np.hstack([pred_panel, gt_panel]), cv2.COLOR_BGR2RGB)
+        images.append(wb.Image(panel, caption=_sample_stem(dataset, i)))
     return images
 
 
@@ -389,7 +464,7 @@ def main(argv: list[str] | None = None) -> None:
                         log[f"val_acc/{name}"] = m["per_class_acc"][idx]
                 if wandb_n_images > 0:
                     log["val/predictions"] = wandb_prediction_images(
-                        wb, model, val_ds, device, wandb_n_images, seg_labels)
+                        wb, model, val_ds, device, wandb_n_images, seg_labels, num_classes)
                 wb.summary["best_val_mIoU"] = best_miou
             wb.log(log, step=epoch)
 
