@@ -2,20 +2,16 @@
 # Download and unpack the AlphaDent dataset from S3.
 # Run from the project root on any machine (local or SageMaker):
 #
-#   bash scripts/download_data.sh s3://your-bucket/path/to/zips/
+#   bash scripts/download_data.sh
 #
-# The script downloads every AlphaDent*.zip from that S3 prefix,
-# unpacks them all, and assembles the dataset under ai/dataset/AlphaDent/.
+# Optionally override the S3 path:
+#   bash scripts/download_data.sh s3://other-bucket/prefix/
 
 set -euo pipefail
 
-if [[ $# -lt 1 ]]; then
-    echo "Usage: bash scripts/download_data.sh s3://your-bucket/prefix/"
-    echo "Example: bash scripts/download_data.sh s3://oralskop-data/AlphaDent/"
-    exit 1
-fi
-
-S3_PREFIX="${1%/}"   # strip trailing slash if any
+DEFAULT_S3="s3://alphadent"
+S3_PREFIX="${1:-${DEFAULT_S3}}"
+S3_PREFIX="${S3_PREFIX%/}"   # strip trailing slash
 TMP_DIR="$(mktemp -d)"
 DEST="ai/dataset/AlphaDent"
 
