@@ -1,0 +1,50 @@
+# Multi-label classifier on the curated manifest dataset.
+#   python -m oralskop.clf.train --config configs/clf/manifest_clf.yaml
+# Override any key with --override key=value (e.g. level=fine epochs=1 device=cpu).
+
+# --- data -------------------------------------------------------------------
+# The manifest CSV is small (~33 MB) and lives locally in ai/; the images are
+# large and stay in S3. Path is resolved relative to the process CWD (run from ai/).
+manifest: manifest_03_master_FINAL.csv
+# image_path column is relative to this root (doc §2). Works for s3:// or a local dir.
+image_root: s3://datastoraged4gen/02_PROCESSED
+
+level: coarse                              # coarse | fine
+# Committed vocabulary -> stable class indices. Set to null to derive from the
+# manifest instead. Point at labels_fine.yaml when level=fine.
+labels_file: configs/clf/labels_coarse.yaml
+exclude_train_only_microclasses: true      # drop restauration/usure_dentaire (doc §7.1)
+
+# Restrict to the category folders you actually have synced (null = all). Example:
+#   image_path_prefixes: [CARIES/, DECOLORATION/, GINGIVITE/, mouth_detection/, MULTI/, OPMD_OSCC/]
+image_path_prefixes: null
+# Local dir to cache S3 images across epochs (fsspec simplecache). null = no cache.
+cache_dir: null
+limit: null                                # cap rows for smoke tests
+
+# --- model ------------------------------------------------------------------
+arch: convnext_tiny                        # convnext_tiny | resnet50 | efficientnet_v2_s
+pretrained: true
+imgsz: 224
+
+# --- training ---------------------------------------------------------------
+epochs: 30
+batch: 64
+lr: 0.0003
+optimizer: adamw                           # adamw | sgd
+weight_decay: 0.05
+scheduler: cosine                          # cosine | poly | none
+warmup_epochs: 2
+pos_weight: auto                           # auto (neg/pos from train) | null | [floats]
+threshold: 0.5                             # decision threshold for P/R/F1
+num_workers: 8
+device: cuda
+amp: true
+seed: 42
+
+# --- output / logging -------------------------------------------------------
+out_dir: runs/clf
+name: clf_coarse
+exist_ok: false
+wandb: false
+# wandb_project: oralskop-clf

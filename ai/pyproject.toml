@@ -20,6 +20,13 @@ dependencies = [
 [project.optional-dependencies]
 # Experiment tracking — install with: uv sync --extra wandb
 wandb = ["wandb>=0.17"]
+# Multi-label manifest classifier (oralskop.clf) — `uv sync --extra clf`.
+# pandas reads the manifest CSV; s3fs lets pandas + fsspec open s3:// paths so the
+# AWS notebook can train straight from the bucket (it pulls fsspec + boto3).
+clf = [
+    "pandas>=2.0",
+    "s3fs>=2024.0",
+]
 
 [project.scripts]
 oralskop-prepare = "oralskop.cli:prepare_main"
@@ -29,6 +36,8 @@ oralskop-train = "oralskop.train.train:main"
 oralskop-train-seg = "oralskop.torchseg.train:main"
 oralskop-eval = "oralskop.eval.evaluate:main"
 oralskop-viz = "oralskop.viz.visualize:main"
+oralskop-train-clf = "oralskop.clf.train:main"
+oralskop-eval-clf = "oralskop.clf.eval:main"
 
 [build-system]
 requires = ["hatchling"]

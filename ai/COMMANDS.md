@@ -152,6 +152,50 @@ reusable on their own for custom loops, EDA, or the future SAM2 stage.
 
 ---
 
+## 3d. Multi-label classification (manifest dataset, S3)
+
+A third, independent path (`oralskop.clf`) trains a **multi-label image classifier** on the
+curated manifest dataset (`manifest_03_master_FINAL.csv`, see `PASSATION_DATA_OralSkop.md`).
+It does **not** use the converter / `data.yaml` pipeline — it reads the manifest CSV
+directly (local or `s3://`), builds multi-hot targets from `canonical_coarse` /
+`canonical_fine`, and trains a torchvision backbone with `BCEWithLogitsLoss`. Designed to
+run in a **Jupyter notebook on AWS** that has bucket access (the notebook's IAM role
+provides S3 credentials).
+
+```bash
+# Install the extra (pandas + s3fs; s3fs pulls fsspec + boto3 for s3:// reads)
+uv sync --extra clf
+
+# CPU smoke test — a few rows, one epoch (set manifest/image_root for your bucket first)
+uv run python -m oralskop.clf.train --config configs/clf/manifest_clf.yaml \
+    --override level=coarse epochs=1 batch=4 limit=64 device=cpu amp=false num_workers=0
+
+# Fine-level smoke test
+uv run python -m oralskop.clf.train --config configs/clf/manifest_clf.yaml \
+    --override level=fine labels_file=configs/clf/labels_fine.yaml name=clf_fine \
+              epochs=1 batch=4 limit=64 device=cpu amp=false num_workers=0
+
+# Real run (AWS notebook, GPU)
+uv run python -m oralskop.clf.train --config configs/clf/manifest_clf.yaml \
+    --override device=cuda epochs=30 batch=64 cache_dir=/home/ec2-user/oralskop_cache
+
+# Evaluate on the test split (checkpoint's class list is authoritative)
+uv run python -m oralskop.clf.eval --config configs/clf/manifest_clf.yaml \
+    --weights runs/clf/clf_coarse/best.pt
+```
+
+Key config (`configs/clf/manifest_clf.yaml`): `manifest` + `image_root` (S3 keys),
+`level` (coarse/fine) with a committed `labels_file` for stable class indices,
+`image_path_prefixes` (restrict to the category folders you have synced), `cache_dir`
+(cache S3 images on EBS across epochs), `arch`
+(convnext_tiny / resnet50 / efficientnet_v2_s), `pos_weight: auto` (neg/pos from train,
+for the heavy class imbalance — doc §7.4). Uses the manifest's own `split` column
+(train/valid/test); excludes the unlabelled MetaDent `pretrain` rows and the two train-only
+micro-classes. Reports **macro-mAP / micro-AP / macro-F1**; saves `best.pt` / `last.pt` /
+`vocab.json` / `metrics.jsonl` to `runs/clf/<name>/`.
+
+---
+
 ## 4. Run on the cluster (SLURM + Apptainer)
 
 ```bash
@@ -266,6 +310,8 @@ Needs a small one-time converter, then it's config-only forever after:
 | Train YOLO (full)        | `uv run python -m oralskop.train.train --config configs/train/yolo11_seg.yaml` |
 | Train YOLO (smoke, CPU)  | `… --override model=yolo11n-seg.pt epochs=1 imgsz=320 device=cpu` |
 | Train torch seg (merged) | `uv run python -m oralskop.torchseg.train --config configs/train/seg_torch.yaml --datasets alphadent bmc_oral_health` |
+| Train classifier (manifest) | `uv run python -m oralskop.clf.train --config configs/clf/manifest_clf.yaml` |
+| Eval classifier (test)   | `uv run python -m oralskop.clf.eval --config configs/clf/manifest_clf.yaml --weights runs/clf/clf_coarse/best.pt` |
 | Evaluate                 | `uv run python -m oralskop.eval.evaluate --weights <best.pt> --data data/alphadent/data.yaml` |
 | Visualize masks          | `uv run python -m oralskop.viz.visualize --dataset alphadent --num_imgs 12` |
 | Build container          | `apptainer build oralskop.sif scripts/apptainer.def` |

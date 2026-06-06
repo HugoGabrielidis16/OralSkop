@@ -1,0 +1,20 @@
+# Coarse multi-label vocabulary for the manifest classifier (doc §4).
+#
+# Order defines the class index the model predicts; treat as APPEND-ONLY so a
+# checkpoint's index N always means the same condition. The two train-only
+# micro-classes `restauration` and `usure_dentaire` (doc §7.1) are intentionally
+# excluded — they are too rare to learn/score and must never be predicted.
+level: coarse
+classes:
+  - sain
+  - carie
+  - lesion_muqueuse_benigne
+  - anatomie
+  - maladie_parodontale
+  - anomalie_de_couleur
+  - lesion_muqueuse_suspecte
+  - depots_dentaires
+  - anomalie_dentaire
+  - signe_fonctionnel
+  - ortho_structure
+  - pathologie_urgente
