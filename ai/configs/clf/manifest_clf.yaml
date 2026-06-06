@@ -51,4 +51,5 @@ out_dir: runs/clf
 name: clf_coarse
 exist_ok: false
 wandb: false
+wandb_name: null                            # null = auto: clf-level-arch-params-img-batch-epochs-rows-scope
 # wandb_project: oralskop-clf

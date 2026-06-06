@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import time
 from pathlib import Path
 
@@ -74,6 +75,65 @@ def build_scheduler(cfg: dict, optimizer: torch.optim.Optimizer):
         return min_lr_factor + (1.0 - min_lr_factor) * ((1.0 - progress) ** poly_power)
 
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
+
+
+def _compact_count(n: int) -> str:
+    for unit, scale in (("B", 1_000_000_000), ("M", 1_000_000), ("K", 1_000)):
+        if n >= scale:
+            value = f"{n / scale:.1f}".rstrip("0").rstrip(".")
+            return f"{value}{unit}"
+    return str(n)
+
+
+def _slug(value: object, *, max_len: int = 40) -> str:
+    text = re.sub(r"[^a-zA-Z0-9_.-]+", "-", str(value).strip()).strip("-_.").lower()
+    return (text or "na")[:max_len]
+
+
+def _prefix_scope_label(prefixes) -> str:
+    if not prefixes:
+        return "all"
+    if isinstance(prefixes, str):
+        raw = [p for p in prefixes.replace(",", " ").split() if p]
+    else:
+        raw = list(prefixes)
+    labels = []
+    for prefix in raw:
+        first = str(prefix).strip("/").split("/", 1)[0]
+        labels.append(_slug(first, max_len=18))
+    if len(labels) > 3:
+        return "+".join(labels[:3]) + f"+{len(labels) - 3}more"
+    return "+".join(labels) if labels else "all"
+
+
+def _model_param_counts(model: torch.nn.Module) -> tuple[int, int]:
+    total = sum(p.numel() for p in model.parameters())
+    trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    return total, trainable
+
+
+def auto_wandb_name(
+    cfg: dict,
+    *,
+    level: str,
+    num_rows: int,
+    num_classes: int,
+    model_params: int,
+) -> str:
+    """Descriptive W&B run name independent of the local checkpoint folder."""
+    parts = [
+        "clf",
+        _slug(level),
+        _slug(cfg.get("arch", "model")),
+        _compact_count(model_params),
+        f"img{cfg.get('imgsz', 224)}",
+        f"b{cfg.get('batch', 64)}",
+        f"e{cfg.get('epochs', 30)}",
+        f"c{num_classes}",
+        f"n{num_rows}",
+        _prefix_scope_label(cfg.get("image_path_prefixes")),
+    ]
+    return "-".join(parts)
 
 
 def wandb_setup(cfg: dict, run_name: str, out_dir: Path):
@@ -278,6 +338,9 @@ def main(argv: list[str] | None = None) -> None:
 
     model = build_classifier(num_classes, arch=cfg.get("arch", "convnext_tiny"),
                              pretrained=bool(cfg.get("pretrained", True))).to(device)
+    model_params, trainable_params = _model_param_counts(model)
+    cfg["model_params"] = model_params
+    cfg["trainable_params"] = trainable_params
 
     pw_cfg = cfg.get("pos_weight", "auto")
     if pw_cfg == "auto":
@@ -301,7 +364,15 @@ def main(argv: list[str] | None = None) -> None:
     metrics_path = out_dir / "metrics.jsonl"
     if metrics_path.exists():
         metrics_path.unlink()
-    wb = wandb_setup(cfg, run_name, out_dir)
+    wandb_run_name = cfg.get("wandb_name") or auto_wandb_name(
+        cfg,
+        level=level,
+        num_rows=len(df),
+        num_classes=num_classes,
+        model_params=model_params,
+    )
+    cfg["wandb_run_name"] = wandb_run_name
+    wb = wandb_setup(cfg, wandb_run_name, out_dir)
 
     epochs = int(cfg.get("epochs", 30))
     threshold = float(cfg.get("threshold", 0.5))
@@ -309,6 +380,9 @@ def main(argv: list[str] | None = None) -> None:
     progress_leave = bool(cfg.get("progress_leave", True))
     log_interval = int(cfg.get("log_interval", 50) or 0)
     best_map = -1.0
+    print(f"Model params: total={model_params:,} trainable={trainable_params:,}")
+    if cfg.get("wandb", False):
+        print(f"W&B run name: {wandb_run_name}")
     print(f"Training {cfg.get('arch', 'convnext_tiny')} for {epochs} epochs -> {out_dir}")
 
     for epoch in range(1, epochs + 1):
