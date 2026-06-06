@@ -2,7 +2,7 @@
 # 1237 train / 83 val / 135 test  |  9 classes
 # Used by models/yolo/train.py and models/unet/train.py
 
-path: ../../dataset/AlphaDent   # relative to this file → OralSkop/dataset/AlphaDent/
+path: ai/dataset/AlphaDent   # relative to project root (where run.py lives)
 
 train: train/images
 val:   val/images

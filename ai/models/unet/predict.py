@@ -13,7 +13,7 @@ import cv2
 import numpy as np
 import torch
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_WEIGHTS = ROOT / "runs" / "unet" / "unet_dental_v1" / "best.pt"
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp"}
