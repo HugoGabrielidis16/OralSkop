@@ -24,7 +24,7 @@ async def create_screening(
 
     # 2. Run AI analysis (mock or real)
     try:
-        result = await analyze_image(file_bytes)
+        result = await analyze_image(file_bytes, content_type=photo.content_type)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"AI inference failed: {str(e)}")
 

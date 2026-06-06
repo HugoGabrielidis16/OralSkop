@@ -373,6 +373,33 @@
       display: block;
     }
 
+    .masked-gallery {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      scroll-snap-type: x mandatory;
+      -webkit-overflow-scrolling: touch;
+      padding-bottom: 4px;
+    }
+    .masked-gallery-item {
+      flex: 0 0 calc(85vw - 40px);
+      scroll-snap-align: start;
+      border-radius: 10px;
+      overflow: hidden;
+      position: relative;
+    }
+    .masked-gallery-item img { width: 100%; display: block; }
+    .masked-gallery-badge {
+      position: absolute;
+      bottom: 8px;
+      right: 8px;
+      background: rgba(0,0,0,0.55);
+      color: white;
+      font-size: 11px;
+      padding: 2px 7px;
+      border-radius: 20px;
+    }
+
     .detections-list { display: flex; flex-direction: column; gap: 12px; }
 
     .detection-card {
@@ -1007,7 +1034,7 @@
       </div>
 
       <button class="btn-primary" onclick="triggerCamera()">Take the photo</button>
-      <input type="file" id="camera-input" accept="image/*" capture="environment" onchange="handlePhoto(event)" />
+      <input type="file" id="camera-input" accept="image/*" multiple onchange="handlePhoto(event)" />
     </div>
   </div>
 
@@ -1158,7 +1185,7 @@
 <div id="loading-overlay">
   <div class="login-logo-mark" style="width:56px;height:56px;font-size:24px">O</div>
   <div class="spinner"></div>
-  <div class="loading-title">Analysing your photo…</div>
+  <div class="loading-title" id="loading-title">Analysing your photo…</div>
   <div class="loading-sub">This takes a few seconds</div>
 </div>
 
@@ -1345,42 +1372,64 @@ function triggerCamera() {
 }
 
 async function handlePhoto(event) {
-  const file = event.target.files[0]
-  if (!file) return
+  const files = Array.from(event.target.files)
+  if (!files.length) return
 
   const token = localStorage.getItem('oralskop_token')
   if (!token) { showToast('Not logged in'); return }
 
-  // Show loading
   document.getElementById('loading-overlay').classList.add('visible')
-
+  const allResults = []
   try {
-    const formData = new FormData()
-    formData.append('photo', file)
+    for (let i = 0; i < files.length; i++) {
+      const titleEl = document.getElementById('loading-title')
+      if (titleEl) titleEl.textContent = files.length > 1
+        ? `Analysing photo ${i + 1} of ${files.length}…`
+        : 'Analysing your photo…'
 
-    const res = await fetch(`${BASE_URL}/api/screenings`, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${token}`, 'ngrok-skip-browser-warning': 'true' },
-      body: formData
-    })
+      const formData = new FormData()
+      formData.append('photo', files[i])
 
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      throw new Error(err.detail || `HTTP ${res.status}`)
+      const res = await fetch(`${BASE_URL}/api/screenings`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'ngrok-skip-browser-warning': 'true' },
+        body: formData
+      })
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.detail || `HTTP ${res.status}`)
+      }
+
+      allResults.push(await res.json())
     }
 
-    const data = await res.json()
-    localStorage.setItem('oralskop_last_result', JSON.stringify(data))
-    renderResults(data)
-    showChatbotBadge(data)
+    const merged = mergeResults(allResults)
+    localStorage.setItem('oralskop_last_result', JSON.stringify(merged))
+    renderResults(merged)
+    showChatbotBadge(merged)
     navigateTo('patient')
 
   } catch (e) {
     showToast(`Error: ${e.message}`)
   } finally {
     document.getElementById('loading-overlay').classList.remove('visible')
-    // Reset input so same file can be reselected
+    const titleEl = document.getElementById('loading-title')
+    if (titleEl) titleEl.textContent = 'Analysing your photo…'
     event.target.value = ''
+  }
+}
+
+function mergeResults(results) {
+  if (results.length === 1) return results[0]
+  return {
+    screening_id: results[results.length - 1].screening_id,
+    photo_url: results[results.length - 1].photo_url,
+    masked_image_url: results[results.length - 1].masked_image_url,
+    masked_image_urls: results.map(r => r.masked_image_url),
+    photo_count: results.length,
+    escalation_triggered: results.some(r => r.escalation_triggered),
+    detections: results.flatMap(r => r.detections || []),
   }
 }
 
@@ -1414,13 +1463,25 @@ function renderResults(data) {
     subtitle.style.color = ''
   }
 
-  // Masked image — show badge only after image has finished loading
-  if (data.masked_image_url) {
-    const imgWrap = document.getElementById('masked-image-wrap')
-    const imgEl   = document.getElementById('masked-image')
+  // Masked image(s)
+  const imgWrap = document.getElementById('masked-image-wrap')
+  if (data.masked_image_urls && data.masked_image_urls.length > 1) {
+    imgWrap.style.display = 'block'
+    imgWrap.innerHTML = `<div class="masked-gallery">${
+      data.masked_image_urls.map((url, i) => `
+        <div class="masked-gallery-item">
+          <img src="${url}" alt="Photo ${i+1} overlay" loading="lazy" />
+          <div class="masked-gallery-badge">Photo ${i+1}</div>
+        </div>`).join('')
+    }</div>`
+  } else if (data.masked_image_url) {
+    imgWrap.innerHTML = '<img id="masked-image" src="" alt="Analysis overlay" />'
+    const imgEl = imgWrap.querySelector('img')
     imgEl.onload  = () => { imgWrap.style.display = 'block' }
     imgEl.onerror = () => { imgWrap.style.display = 'none' }
     imgEl.src     = data.masked_image_url
+  } else {
+    imgWrap.style.display = 'none'
   }
 
   // Arcade — highlight tooth if tooth_number present

@@ -1,7 +1,30 @@
 import base64
+import io
 import httpx
 from config import settings
 from mock.mock_response import MOCK_AI_RESPONSE
+
+
+def _to_jpeg(file_bytes: bytes, content_type: str | None) -> tuple[bytes, str]:
+    """
+    If the image is HEIC/HEIF (iOS camera default), convert to JPEG.
+    Returns (jpeg_bytes, 'image/jpeg'). All other formats pass through.
+    """
+    mime = content_type or ''
+    is_heic = (
+        mime.lower() in ('image/heic', 'image/heif')
+        or file_bytes[4:12] in (b'ftypheic', b'ftypheix', b'ftyphevc', b'ftyphevx', b'ftypmif1', b'ftypmsf1')
+    )
+    if not is_heic:
+        return file_bytes, mime or _detect_mime(file_bytes)
+
+    import pillow_heif
+    from PIL import Image
+    pillow_heif.register_heif_opener()
+    img = Image.open(io.BytesIO(file_bytes))
+    buf = io.BytesIO()
+    img.convert('RGB').save(buf, format='JPEG', quality=92)
+    return buf.getvalue(), 'image/jpeg'
 
 # Hardcoded recommendation bullets per condition
 RECOMMENDATIONS: dict[str, list[str]] = {
@@ -95,30 +118,46 @@ def _parse_predictions(predictions: list[dict]) -> tuple[list[dict], bool]:
     return detections, escalation
 
 
-async def analyze_image(file_bytes: bytes) -> dict:
+def _detect_mime(file_bytes: bytes) -> str:
+    """Detect image MIME type from magic bytes."""
+    if file_bytes[:2] == b'\xff\xd8':
+        return 'image/jpeg'
+    if file_bytes[:8] == b'\x89PNG\r\n\x1a\n':
+        return 'image/png'
+    if file_bytes[:4] == b'RIFF' and file_bytes[8:12] == b'WEBP':
+        return 'image/webp'
+    return 'image/jpeg'  # fallback
+
+
+async def analyze_image(file_bytes: bytes, content_type: str | None = None) -> dict:
     """
     Main entrypoint. Returns enriched analysis dict.
     USE_MOCK_AI=true → returns mock fixture instantly.
     USE_MOCK_AI=false → calls real AI server.
     """
+    # Convert HEIC→JPEG before anything else
+    file_bytes, content_type = _to_jpeg(file_bytes, content_type)
     if settings.use_mock_ai:
         detections, escalation = _parse_predictions(MOCK_AI_RESPONSE["predictions"])
         masked_image_bytes = base64.b64decode(MOCK_AI_RESPONSE["masked_image"])
     else:
-        # Real AI server has two endpoints — call both concurrently
-        import asyncio
         base_url = settings.ai_server_url.rstrip("/")
-        async with httpx.AsyncClient(timeout=30) as client:
-            json_task = client.post(
+        mime = content_type or _detect_mime(file_bytes)
+        ext = mime.split('/')[-1].replace('jpeg', 'jpg')
+        filename = f"photo.{ext}"
+        headers = {"ngrok-skip-browser-warning": "true"}
+        async with httpx.AsyncClient(timeout=60) as client:
+            json_resp = await client.post(
                 f"{base_url}/predict",
-                files={"file": ("photo.jpg", file_bytes, "image/jpeg")},
+                files={"file": (filename, file_bytes, mime)},
+                headers=headers,
             )
-            overlay_task = client.post(
-                f"{base_url}/predict/overlay",
-                files={"file": ("photo.jpg", file_bytes, "image/jpeg")},
-            )
-            json_resp, overlay_resp = await asyncio.gather(json_task, overlay_task)
             json_resp.raise_for_status()
+            overlay_resp = await client.post(
+                f"{base_url}/predict/overlay",
+                files={"file": (filename, file_bytes, mime)},
+                headers=headers,
+            )
             overlay_resp.raise_for_status()
 
         raw = json_resp.json()

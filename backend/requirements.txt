@@ -8,3 +8,5 @@ pydantic
 pydantic-settings
 httpx
 python-dotenv
+pillow
+pillow-heif
