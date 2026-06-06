@@ -42,6 +42,8 @@ serve = [
     # [bedrock] extra pulls boto3 so ORALSKOP_CHAT_BACKEND=bedrock works
     # (AnthropicBedrock needs botocore; it's not in the isolated uv venv).
     "anthropic[bedrock]>=0.40",
+    # Rekognition mouth-crop preprocessing in the segmentation serving path.
+    "boto3>=1.34",
 ]
 # Optional semantic-segmentation exploration stack.
 explore = [

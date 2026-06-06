@@ -16,6 +16,7 @@ served model needs nothing but the ``.pt`` file — no built dataset, no config.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
 
 import cv2
@@ -48,6 +49,28 @@ class Detection:
         }
 
 
+@dataclass
+class PreprocessResult:
+    """Image actually sent to the model plus how it maps to the original image."""
+
+    rgb: np.ndarray
+    crop_box: tuple[int, int, int, int] | None = None
+    fallback_reason: str | None = None
+
+    @property
+    def crop_applied(self) -> bool:
+        return self.crop_box is not None
+
+    def as_dict(self) -> dict:
+        out = {"crop_applied": self.crop_applied}
+        if self.crop_box is not None:
+            out["method"] = "rekognition_mouth"
+            out["crop_box"] = list(self.crop_box)
+        if self.fallback_reason:
+            out["fallback_reason"] = self.fallback_reason
+        return out
+
+
 class SegModel:
     """A loaded torchseg model ready to predict on raw image bytes."""
 
@@ -73,6 +96,13 @@ class SegModel:
         self.conf = conf
         self.min_area_frac = min_area_frac
         self.weights_path = path
+        self.mouth_crop_enabled = True
+        self.rekognition_region = (
+            os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION") or "us-west-2"
+        )
+        self._rekognition_client = None
+        self._rekognition_init_error: str | None = None
+        self._rekognition_init_error_reason: str | None = None
 
         ckpt = torch.load(str(path), map_location=self.device, weights_only=False)
         if isinstance(ckpt, dict) and "model" in ckpt:
@@ -124,18 +154,14 @@ class SegModel:
 
     def predict(self, image_bytes: bytes) -> dict:
         """Run the model on raw image bytes; return JSON-serializable results."""
-        rgb, (h, w) = self._decode(image_bytes)
-        pred_small, conf_small = self._raw_predict(rgb)
-
-        # Upsample the class map (nearest) and confidence (linear) back to original size.
-        pred = cv2.resize(pred_small.astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST)
-        conf = cv2.resize(conf_small, (w, h), interpolation=cv2.INTER_LINEAR)
+        rgb, pred, conf, preprocess, (h, w) = self._predict_arrays(image_bytes)
 
         detections = self._components(pred, conf, w, h)
         return {
             "image": {"width": w, "height": h},
             "imgsz": self.imgsz,
             "weights": self.weights_path.name,
+            "preprocess": preprocess.as_dict(),
             "detections": [d.as_dict() for d in detections],
             # per-class summary (coverage even where no single component clears `conf`)
             "class_coverage": self._coverage(pred, w, h),
@@ -143,10 +169,7 @@ class SegModel:
 
     def predict_overlay(self, image_bytes: bytes, *, alpha: float = 0.5) -> bytes:
         """Run the model and return an annotated PNG (colored masks + labels)."""
-        rgb, (h, w) = self._decode(image_bytes)
-        pred_small, conf_small = self._raw_predict(rgb)
-        pred = cv2.resize(pred_small.astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST)
-        conf = cv2.resize(conf_small, (w, h), interpolation=cv2.INTER_LINEAR)
+        rgb, pred, conf, _, (h, w) = self._predict_arrays(image_bytes)
 
         overlay = self._render(rgb, pred, conf, w, h, alpha)
         bgr = cv2.cvtColor(overlay, cv2.COLOR_RGB2BGR)
@@ -156,6 +179,33 @@ class SegModel:
         return buf.tobytes()
 
     # ------------------------------------------------------------------- helpers
+    def _predict_arrays(
+        self,
+        image_bytes: bytes,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, PreprocessResult, tuple[int, int]]:
+        """Return original RGB, original-size pred/conf maps, preprocess metadata."""
+        rgb, (h, w) = self._decode(image_bytes)
+        preprocess = self._mouth_preprocess(image_bytes, rgb, w, h)
+        crop_h, crop_w = preprocess.rgb.shape[:2]
+
+        pred_small, conf_small = self._raw_predict(preprocess.rgb)
+        crop_pred = cv2.resize(
+            pred_small.astype(np.uint8),
+            (crop_w, crop_h),
+            interpolation=cv2.INTER_NEAREST,
+        )
+        crop_conf = cv2.resize(conf_small, (crop_w, crop_h), interpolation=cv2.INTER_LINEAR)
+
+        if preprocess.crop_box is None:
+            return rgb, crop_pred, crop_conf, preprocess, (h, w)
+
+        pred = np.zeros((h, w), dtype=np.uint8)
+        conf = np.zeros((h, w), dtype=np.float32)
+        x1, y1, x2, y2 = preprocess.crop_box
+        pred[y1:y2, x1:x2] = crop_pred
+        conf[y1:y2, x1:x2] = crop_conf
+        return rgb, pred, conf, preprocess, (h, w)
+
     @staticmethod
     def _decode(image_bytes: bytes) -> tuple[np.ndarray, tuple[int, int]]:
         arr = np.frombuffer(image_bytes, dtype=np.uint8)
@@ -165,6 +215,91 @@ class SegModel:
         rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
         h, w = rgb.shape[:2]
         return rgb, (h, w)
+
+    def _get_rekognition(self):
+        if self._rekognition_client is not None:
+            return self._rekognition_client
+        if self._rekognition_init_error:
+            if self._rekognition_init_error_reason == "boto3_unavailable":
+                raise ImportError(self._rekognition_init_error)
+            raise RuntimeError(self._rekognition_init_error)
+        try:
+            import boto3
+
+            self._rekognition_client = boto3.client(
+                "rekognition",
+                region_name=self.rekognition_region,
+            )
+            return self._rekognition_client
+        except ImportError as exc:
+            self._rekognition_init_error = str(exc)
+            self._rekognition_init_error_reason = "boto3_unavailable"
+            raise
+        except Exception as exc:  # noqa: BLE001 - prediction must degrade to full image
+            self._rekognition_init_error = str(exc)
+            self._rekognition_init_error_reason = "rekognition_error"
+            raise
+
+    def _mouth_preprocess(self, image_bytes: bytes, rgb: np.ndarray, w: int, h: int) -> PreprocessResult:
+        """Crop to Rekognition mouth landmarks, falling back to the full image."""
+        if not self.mouth_crop_enabled:
+            return PreprocessResult(rgb=rgb, fallback_reason="disabled")
+        crop_box, reason = self._rekognition_mouth_box(image_bytes, w, h)
+        if crop_box is None:
+            return PreprocessResult(rgb=rgb, fallback_reason=reason)
+        x1, y1, x2, y2 = crop_box
+        return PreprocessResult(rgb=np.ascontiguousarray(rgb[y1:y2, x1:x2]), crop_box=crop_box)
+
+    def _rekognition_mouth_box(
+        self,
+        image_bytes: bytes,
+        w: int,
+        h: int,
+    ) -> tuple[tuple[int, int, int, int] | None, str | None]:
+        """Return a clamped original-image crop box from Rekognition landmarks."""
+        try:
+            response = self._get_rekognition().detect_faces(
+                Image={"Bytes": image_bytes},
+                Attributes=["ALL"],
+            )
+        except ImportError:
+            return None, "boto3_unavailable"
+        except Exception:
+            return None, "rekognition_error"
+
+        faces = response.get("FaceDetails") or []
+        if not faces:
+            return None, "no_face"
+
+        landmarks = {p.get("Type"): p for p in faces[0].get("Landmarks", [])}
+        needed = ("mouthLeft", "mouthRight", "mouthUp", "mouthDown")
+        if any(k not in landmarks for k in needed):
+            return None, "missing_mouth_landmarks"
+
+        mouth_points = [landmarks[k] for k in needed]
+        try:
+            xs = [float(p["X"]) * w for p in mouth_points]
+            ys = [float(p["Y"]) * h for p in mouth_points]
+        except (KeyError, TypeError, ValueError):
+            return None, "invalid_crop"
+
+        mouth_left, mouth_right = min(xs), max(xs)
+        mouth_top, mouth_bottom = min(ys), max(ys)
+        mouth_width = mouth_right - mouth_left
+        if mouth_width <= 0 or mouth_bottom <= mouth_top:
+            return None, "invalid_crop"
+
+        pad_x = mouth_width
+        pad_y_top = mouth_width
+        pad_y_bottom = mouth_width
+        x1 = max(0, int(mouth_left - pad_x))
+        y1 = max(0, int(mouth_top - pad_y_top))
+        x2 = min(w, int(mouth_right + pad_x))
+        y2 = min(h, int(mouth_bottom + pad_y_bottom))
+
+        if x2 - x1 < 8 or y2 - y1 < 8:
+            return None, "invalid_crop"
+        return (x1, y1, x2, y2), None
 
     def _components(self, pred: np.ndarray, conf: np.ndarray, w: int, h: int) -> list[Detection]:
         """One Detection per connected component, filtered by conf + min area."""
@@ -248,6 +383,11 @@ class SegModel:
             "device": str(self.device),
             "conf": self.conf,
             "min_area_frac": self.min_area_frac,
+            "preprocess": {
+                "mouth_crop_enabled": self.mouth_crop_enabled,
+                "method": "rekognition_mouth",
+                "rekognition_region": self.rekognition_region,
+            },
             "epoch": self.epoch,
             "val_miou": self.miou,
         }
