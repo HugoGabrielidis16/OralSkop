@@ -80,6 +80,8 @@ def main(argv: list[str] | None = None) -> None:
     print(f"\n== test ({m['num_samples']} samples) ==")
     print(f"macro-mAP {m['macro_map']:.4f}  micro-AP {m['micro_ap']:.4f}  "
           f"macro-F1 {m['macro_f1']:.4f}  micro-F1 {m['micro_f1']:.4f}  "
+          f"macro-acc {m['macro_accuracy']:.4f}  micro-acc {m['micro_accuracy']:.4f}  "
+          f"exact-acc {m['exact_match_accuracy']:.4f}  "
           f"(thr={m['threshold']})")
     print(format_per_class(m))
 

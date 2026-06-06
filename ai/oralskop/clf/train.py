@@ -281,11 +281,15 @@ def main(argv: list[str] | None = None) -> None:
             m = multilabel_metrics(y_true, y_score, vocab.names, threshold=threshold)
             line += (f"  macro_mAP {m['macro_map']:.4f}  micro_AP {m['micro_ap']:.4f}"
                      f"  macro_F1 {m['macro_f1']:.4f}  micro_F1 {m['micro_f1']:.4f}")
+            line += (f"  macro_acc {m['macro_accuracy']:.4f}"
+                     f"  micro_acc {m['micro_accuracy']:.4f}"
+                     f"  exact_acc {m['exact_match_accuracy']:.4f}")
 
         record = {"epoch": epoch, "train_loss": train_loss, "lr": optimizer.param_groups[0]["lr"]}
         if m is not None:
             record.update({k: m[k] for k in
-                           ("macro_map", "micro_ap", "macro_f1", "micro_f1")})
+                           ("macro_map", "micro_ap", "macro_f1", "micro_f1",
+                            "macro_accuracy", "micro_accuracy", "exact_match_accuracy")})
         with metrics_path.open("a") as f:
             f.write(json.dumps(record) + "\n")
 
@@ -308,7 +312,10 @@ def main(argv: list[str] | None = None) -> None:
             log = {"train/loss": train_loss, "lr": optimizer.param_groups[0]["lr"]}
             if m is not None:
                 log.update({"val/macro_mAP": m["macro_map"], "val/micro_AP": m["micro_ap"],
-                            "val/macro_F1": m["macro_f1"], "val/micro_F1": m["micro_f1"]})
+                            "val/macro_F1": m["macro_f1"], "val/micro_F1": m["micro_f1"],
+                            "val/macro_accuracy": m["macro_accuracy"],
+                            "val/micro_accuracy": m["micro_accuracy"],
+                            "val/exact_match_accuracy": m["exact_match_accuracy"]})
             wb.log(log, step=epoch)
 
     if wb is not None:

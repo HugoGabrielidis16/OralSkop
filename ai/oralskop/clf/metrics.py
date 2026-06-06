@@ -1,9 +1,9 @@
 """Multi-label classification metrics.
 
 Threshold-free ranking metrics (per-class average precision, macro-mAP, micro-AP)
-plus thresholded precision/recall/F1. Classes with no positive ground-truth in the
-evaluated split get ``nan`` AP and are excluded from the macro mean (so an absent
-class doesn't drag the score).
+plus thresholded precision/recall/F1/accuracy. Classes with no positive ground-truth
+in the evaluated split get ``nan`` AP and are excluded from the macro AP/F1 means
+(so an absent class doesn't drag the score).
 """
 
 from __future__ import annotations
@@ -40,6 +40,11 @@ def multilabel_metrics(
     )
 
     y_pred = (y_score >= threshold).astype(int)
+    per_class_accuracy = (y_pred == y_true).mean(axis=0)
+    macro_accuracy = float(np.mean(per_class_accuracy[present])) if present.any() else float("nan")
+    micro_accuracy = float((y_pred == y_true).mean())
+    exact_match_accuracy = float((y_pred == y_true).all(axis=1).mean()) if n else float("nan")
+
     p, r, f1, _ = precision_recall_fscore_support(
         y_true, y_pred, average=None, zero_division=0, labels=list(range(c))
     )
@@ -54,6 +59,9 @@ def multilabel_metrics(
         "micro_ap": micro_ap,
         "macro_f1": macro_f1,
         "micro_f1": float(micro_f1),
+        "macro_accuracy": macro_accuracy,
+        "micro_accuracy": micro_accuracy,
+        "exact_match_accuracy": exact_match_accuracy,
         "micro_precision": float(micro_p),
         "micro_recall": float(micro_r),
         "threshold": threshold,
@@ -63,12 +71,16 @@ def multilabel_metrics(
         "per_class_precision": p.tolist(),
         "per_class_recall": r.tolist(),
         "per_class_f1": f1.tolist(),
+        "per_class_accuracy": per_class_accuracy.tolist(),
     }
 
 
 def format_per_class(m: dict) -> str:
-    """One line per class: name, support, AP, P/R/F1 (skips absent classes)."""
-    lines = [f"{'class':28s} {'support':>8s} {'AP':>6s} {'P':>6s} {'R':>6s} {'F1':>6s}"]
+    """One line per class: name, support, AP, P/R/F1/accuracy (skips absent classes)."""
+    lines = [
+        f"{'class':28s} {'support':>8s} {'AP':>6s} {'P':>6s} {'R':>6s} "
+        f"{'F1':>6s} {'Acc':>6s}"
+    ]
     for i, name in enumerate(m["class_names"]):
         if m["support"][i] == 0:
             continue
@@ -77,6 +89,6 @@ def format_per_class(m: dict) -> str:
         lines.append(
             f"{name:28s} {m['support'][i]:8d} {ap_s} "
             f"{m['per_class_precision'][i]:6.3f} {m['per_class_recall'][i]:6.3f} "
-            f"{m['per_class_f1'][i]:6.3f}"
+            f"{m['per_class_f1'][i]:6.3f} {m['per_class_accuracy'][i]:6.3f}"
         )
     return "\n".join(lines)
