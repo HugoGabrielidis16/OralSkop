@@ -18,9 +18,9 @@ import math
 import time
 from pathlib import Path
 
-import cv2
 import numpy as np
 import torch
+from PIL import Image, ImageDraw
 from tqdm.auto import tqdm
 
 # ImageNet normalization (matches dataset.py) — to un-normalize images for W&B previews.
@@ -32,7 +32,7 @@ from oralskop.torchseg.dataset import AI_ROOT, build_seg_dataset
 from oralskop.torchseg.losses import build_criterion
 from oralskop.torchseg.lora import apply_lora, parameter_counts
 from oralskop.torchseg.model import build_model, has_aux
-from oralskop.viz.visualize import color_for, draw_legend  # shared BGR palette + legend
+from oralskop.viz.visualize import color_for  # shared BGR palette
 
 
 @torch.no_grad()
@@ -232,22 +232,26 @@ def wandb_setup(cfg: dict, run_name: str, out_dir: Path):
 
 
 @torch.no_grad()
-def _denorm_bgr(image: torch.Tensor) -> np.ndarray:
-    """Normalized [3,H,W] tensor -> HxWx3 uint8 BGR (cv2 convention, for drawing)."""
+def _denorm_rgb(image: torch.Tensor) -> np.ndarray:
+    """Normalized [3,H,W] tensor -> HxWx3 uint8 RGB."""
     rgb = image.cpu().numpy().transpose(1, 2, 0) * _NORM_STD + _NORM_MEAN
-    rgb = (np.clip(rgb, 0.0, 1.0) * 255).astype(np.uint8)
-    return cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+    return (np.clip(rgb, 0.0, 1.0) * 255).astype(np.uint8)
 
 
-def _seg_overlay_bgr(bgr: np.ndarray, mask: np.ndarray, alpha: float) -> np.ndarray:
-    """Blend the palette-colored seg mask onto a BGR image (background, 0, untouched)."""
-    out = bgr.copy()
+def _palette_rgb(class_id: int) -> tuple[int, int, int]:
+    b, g, r = color_for(class_id)
+    return (r, g, b)
+
+
+def _seg_overlay_rgb(rgb: np.ndarray, mask: np.ndarray, alpha: float) -> np.ndarray:
+    """Blend the palette-colored seg mask onto an RGB image (background, 0, untouched)."""
+    out = rgb.copy()
     for value in np.unique(mask):
         if value == 0:
             continue
-        color = np.array(color_for(int(value) - 1), dtype=np.float32)  # BGR palette
+        color = np.array(_palette_rgb(int(value) - 1), dtype=np.float32)
         sel = mask == value
-        out[sel] = ((1 - alpha) * bgr[sel].astype(np.float32) + alpha * color).astype(np.uint8)
+        out[sel] = ((1 - alpha) * rgb[sel].astype(np.float32) + alpha * color).astype(np.uint8)
     return out
 
 
@@ -264,12 +268,29 @@ def _fg_miou(pred: np.ndarray, gt: np.ndarray, num_classes: int) -> float:
     return float(np.mean(ious)) if ious else float("nan")
 
 
-def _title_bar(panel_bgr: np.ndarray, text: str, bar_h: int = 26) -> np.ndarray:
-    """Stack a black title bar with white text on top of a BGR panel."""
-    bar = np.zeros((bar_h, panel_bgr.shape[1], 3), dtype=np.uint8)
-    cv2.putText(bar, text, (8, bar_h - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.55,
-                (255, 255, 255), 1, cv2.LINE_AA)
-    return np.vstack([bar, panel_bgr])
+def _draw_legend_rgb(image: np.ndarray, present: list[int], names: dict[int, str]) -> np.ndarray:
+    """Burn a compact class legend into an RGB panel."""
+    if not present:
+        return image
+    out = Image.fromarray(image.copy())
+    draw = ImageDraw.Draw(out)
+    pad, sw, row_h = 8, 16, 22
+    width = min(out.width, 280)
+    height = pad * 2 + row_h * len(present)
+    draw.rectangle((0, 0, width, height), fill=(32, 32, 32))
+    y = pad
+    for cid in present:
+        draw.rectangle((pad, y + 2, pad + sw, y + sw + 2), fill=_palette_rgb(cid), outline=(255, 255, 255))
+        draw.text((pad + sw + 8, y + 1), names.get(cid, str(cid)), fill=(255, 255, 255))
+        y += row_h
+    return np.asarray(out)
+
+
+def _title_bar_rgb(panel: np.ndarray, text: str, bar_h: int = 26) -> np.ndarray:
+    """Stack a black title bar with white text on top of an RGB panel."""
+    bar = Image.new("RGB", (panel.shape[1], bar_h), (0, 0, 0))
+    ImageDraw.Draw(bar).text((8, 6), text, fill=(255, 255, 255))
+    return np.vstack([np.asarray(bar), panel])
 
 
 def _sample_stem(dataset, idx: int) -> str:
@@ -305,22 +326,22 @@ def wandb_prediction_images(wb, model, dataset, device, n: int,
         image, target = dataset[i]
         pred = model(image.unsqueeze(0).to(device))["out"].argmax(1)[0].cpu().numpy()
         gt = target.cpu().numpy()
-        bgr = _denorm_bgr(image)
+        rgb = _denorm_rgb(image)
 
-        pred_panel = _seg_overlay_bgr(bgr, pred, alpha)
-        gt_panel = _seg_overlay_bgr(bgr, gt, alpha)
+        pred_panel = _seg_overlay_rgb(rgb, pred, alpha)
+        gt_panel = _seg_overlay_rgb(rgb, gt, alpha)
 
         # Burn a legend of the classes appearing in either mask onto the prediction panel.
         present = sorted({int(v) - 1 for v in np.unique(pred) if v != 0}
                          | {int(v) - 1 for v in np.unique(gt) if v != 0})
-        pred_panel = draw_legend(pred_panel, present, legend_names)
+        pred_panel = _draw_legend_rgb(pred_panel, present, legend_names)
 
         miou = _fg_miou(pred, gt, num_classes)
         miou_txt = f"fg mIoU {miou:.2f}" if miou == miou else "no GT fg"
-        pred_panel = _title_bar(pred_panel, f"prediction  -  {miou_txt}")
-        gt_panel = _title_bar(gt_panel, "ground truth")
+        pred_panel = _title_bar_rgb(pred_panel, f"prediction  -  {miou_txt}")
+        gt_panel = _title_bar_rgb(gt_panel, "ground truth")
 
-        panel = cv2.cvtColor(np.hstack([pred_panel, gt_panel]), cv2.COLOR_BGR2RGB)
+        panel = np.hstack([pred_panel, gt_panel])
         images.append(wb.Image(panel, caption=_sample_stem(dataset, i)))
     return images
 

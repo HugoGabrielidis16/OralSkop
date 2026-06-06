@@ -19,6 +19,7 @@ import cv2
 import numpy as np
 import torch
 import yaml
+from PIL import Image, ImageDraw
 from torch.utils.data import ConcatDataset, Dataset
 
 from oralskop.data.verify import IMAGE_EXTS
@@ -28,6 +29,16 @@ AI_ROOT = Path(__file__).resolve().parents[2]
 # ImageNet normalization (torchvision pretrained backbones expect it).
 _MEAN = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
 _STD = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
+_CV2_BORDER_CONSTANT = getattr(cv2, "BORDER_CONSTANT", 0)
+
+
+def _polygon_area(pts: np.ndarray) -> float:
+    """Shoelace polygon area, used only to paint larger masks first."""
+    if len(pts) < 3:
+        return 0.0
+    x = pts[:, 0]
+    y = pts[:, 1]
+    return float(abs(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1))) * 0.5)
 
 
 def _split_dirs(data_yaml: Path, split: str) -> list[tuple[Path, Path]]:
@@ -73,7 +84,8 @@ def rasterize_polygons(label_text: str, size: int) -> np.ndarray:
 
     Larger polygons are painted first so small lesions stay visible on top.
     """
-    mask = np.zeros((size, size), dtype=np.uint8)
+    mask_img = Image.new("L", (size, size), 0)
+    draw = ImageDraw.Draw(mask_img)
     polys: list[tuple[int, np.ndarray]] = []
     for line in label_text.strip().splitlines():
         parts = line.split()
@@ -90,9 +102,9 @@ def rasterize_polygons(label_text: str, size: int) -> np.ndarray:
         )
         if len(pts) >= 3:
             polys.append((cls, pts))
-    for cls, pts in sorted(polys, key=lambda cp: cv2.contourArea(cp[1]), reverse=True):
-        cv2.fillPoly(mask, [pts], cls + 1)
-    return mask
+    for cls, pts in sorted(polys, key=lambda cp: _polygon_area(cp[1]), reverse=True):
+        draw.polygon([tuple(p) for p in pts.tolist()], fill=cls + 1)
+    return np.asarray(mask_img, dtype=np.uint8)
 
 
 def _build_augmentation(name: str, size: int):
@@ -117,7 +129,7 @@ def _build_augmentation(name: str, size: int):
                 shift_limit=0.04,
                 scale_limit=0.08,
                 rotate_limit=8,
-                border_mode=cv2.BORDER_CONSTANT,
+                border_mode=_CV2_BORDER_CONSTANT,
                 fill=0,
                 fill_mask=0,
                 p=0.6,
@@ -131,7 +143,7 @@ def _build_augmentation(name: str, size: int):
                 shift_limit=0.08,
                 scale_limit=0.16,
                 rotate_limit=18,
-                border_mode=cv2.BORDER_CONSTANT,
+                border_mode=_CV2_BORDER_CONSTANT,
                 fill=0,
                 fill_mask=0,
                 p=0.75,
@@ -184,11 +196,11 @@ class YoloSegDataset(Dataset):
 
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
         img_path, label_path = self.samples[idx]
-        bgr = cv2.imread(str(img_path))
-        if bgr is None:
-            raise RuntimeError(f"Unreadable image: {img_path}")
-        rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
-        rgb = cv2.resize(rgb, (self.imgsz, self.imgsz), interpolation=cv2.INTER_LINEAR)
+        try:
+            rgb = Image.open(img_path).convert("RGB")
+        except Exception as exc:  # noqa: BLE001 - include the path in the dataset error
+            raise RuntimeError(f"Unreadable image: {img_path}") from exc
+        rgb = np.asarray(rgb.resize((self.imgsz, self.imgsz), Image.BILINEAR), dtype=np.uint8).copy()
 
         text = label_path.read_text() if label_path.exists() else ""
         mask = rasterize_polygons(text, self.imgsz)
