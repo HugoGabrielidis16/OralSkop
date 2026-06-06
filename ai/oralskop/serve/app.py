@@ -26,12 +26,51 @@ import io
 import logging
 import traceback
 
+from typing import Literal
+
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from pydantic import BaseModel, Field
 
 _log = logging.getLogger("oralskop.serve")
 
 from oralskop.serve.model import SegModel
+
+
+# ----------------------------------------------------------------- chat schemas
+class ChatTurn(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+
+
+class ChatRequest(BaseModel):
+    """One stateless chat turn: the full conversation so far plus the case's
+    stored segmentation result (the JSON returned by ``POST /predict``)."""
+
+    messages: list[ChatTurn] = Field(..., min_length=1)
+    segmentation: dict | None = None
+    extra_context: str | None = None
+
+
+class ChatReply(BaseModel):
+    reply: str
+    model: str
+    usage: dict
+
+
+def _get_chat_service(app: FastAPI):
+    """Lazily build (and cache) the Claude-backed chat service on the app.
+
+    Deferred so the segmentation server still starts without an API key / the
+    anthropic package — only ``/chat`` needs them.
+    """
+    svc = getattr(app.state, "chat_service", None)
+    if svc is None:
+        from oralskop.serve.chat import ChatService
+
+        svc = ChatService()  # raises ChatUnavailable if dep/key missing
+        app.state.chat_service = svc
+    return svc
 
 _INDEX_HTML = """<!doctype html>
 <html><head><meta charset="utf-8"><title>OralSkop</title>
@@ -112,6 +151,26 @@ def create_app(weights, *, arch="deeplabv3_resnet50", imgsz=512, device="cpu",
             _log.error("predict/overlay failed:\n%s", traceback.format_exc())
             raise HTTPException(500, f"{type(exc).__name__}: {exc}")
         return StreamingResponse(io.BytesIO(png), media_type="image/png")
+
+    @app.post("/chat", response_model=ChatReply)
+    def chat(req: ChatRequest):  # sync def -> Starlette runs it in a threadpool
+        from oralskop.serve.chat import ChatUnavailable
+
+        if req.messages[-1].role != "user":
+            raise HTTPException(400, "The last message must have role 'user'.")
+        try:
+            svc = _get_chat_service(app)
+        except ChatUnavailable as exc:
+            raise HTTPException(503, str(exc))
+        try:
+            return svc.reply(
+                [m.model_dump() for m in req.messages],
+                segmentation=req.segmentation,
+                extra_context=req.extra_context,
+            )
+        except Exception as exc:  # surface the real cause like the other routes
+            _log.error("chat failed:\n%s", traceback.format_exc())
+            raise HTTPException(500, f"{type(exc).__name__}: {exc}")
 
     return app
 

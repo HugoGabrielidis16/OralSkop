@@ -31,6 +31,8 @@ serve = [
     "python-multipart>=0.0.9",
     "pyngrok>=7.0",
     "nest-asyncio>=1.6",
+    # Chat endpoint (/chat): Claude via the official Anthropic SDK.
+    "anthropic>=0.40",
 ]
 # Optional semantic-segmentation exploration stack.
 explore = [
