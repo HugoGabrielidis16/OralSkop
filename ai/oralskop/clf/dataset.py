@@ -148,11 +148,13 @@ class ManifestClfDataset(Dataset):
         imgsz: int,
         train: bool,
         cache_dir: str | None = None,
+        unreadable_log_limit: int = 0,
     ):
         self.vocab = vocab
         self.image_root = image_root
         self.cache_dir = cache_dir
         self.transform = build_transforms(imgsz, train=train)
+        self.unreadable_log_limit = max(int(unreadable_log_limit or 0), 0)
 
         self.paths: list[str] = []
         targets: list[np.ndarray] = []
@@ -185,7 +187,7 @@ class ManifestClfDataset(Dataset):
                     return img, target
                 except Exception as exc:  # missing key, decode error, transient S3 error
                     self._missing.add(idx)
-                    if self._missing_logged < 10:
+                    if self._missing_logged < self.unreadable_log_limit:
                         print(f">> clf: skipping unreadable image {uri} ({exc})")
                         self._missing_logged += 1
             idx = random.randrange(len(self.paths))

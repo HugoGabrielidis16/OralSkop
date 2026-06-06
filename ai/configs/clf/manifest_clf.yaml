@@ -44,6 +44,7 @@ seed: 42
 progress: true                              # tqdm train/val progress bars
 progress_leave: true                        # keep epoch bars visible in notebooks
 log_interval: 50                            # print train loss every N batches; 0 = epoch-only
+unreadable_log_limit: 0                     # per worker; 0 = silently substitute bad images
 
 # --- output / logging -------------------------------------------------------
 out_dir: runs/clf

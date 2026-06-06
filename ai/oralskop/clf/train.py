@@ -172,10 +172,15 @@ def main(argv: list[str] | None = None) -> None:
     image_root = cfg.get("image_root", "s3://datastoraged4gen/02_PROCESSED")
     imgsz = int(cfg.get("imgsz", 224))
     cache_dir = cfg.get("cache_dir")
+    unreadable_log_limit = int(cfg.get("unreadable_log_limit", 0) or 0)
     train_ds = ManifestClfDataset(df[df["split"].str.strip() == _SPLIT_TRAIN], vocab,
-                                  image_root=image_root, imgsz=imgsz, train=True, cache_dir=cache_dir)
+                                  image_root=image_root, imgsz=imgsz, train=True,
+                                  cache_dir=cache_dir,
+                                  unreadable_log_limit=unreadable_log_limit)
     val_ds = ManifestClfDataset(df[df["split"].str.strip() == _SPLIT_VAL], vocab,
-                                image_root=image_root, imgsz=imgsz, train=False, cache_dir=cache_dir)
+                                image_root=image_root, imgsz=imgsz, train=False,
+                                cache_dir=cache_dir,
+                                unreadable_log_limit=unreadable_log_limit)
     print(f"train={len(train_ds)} (dropped {train_ds.dropped_empty} off-vocab) "
           f"valid={len(val_ds)} (dropped {val_ds.dropped_empty}) | device={device.type}")
     if len(train_ds) == 0:
