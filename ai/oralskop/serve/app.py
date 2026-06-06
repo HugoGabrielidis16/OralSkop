@@ -23,9 +23,13 @@ from __future__ import annotations
 
 import argparse
 import io
+import logging
+import traceback
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+
+_log = logging.getLogger("oralskop.serve")
 
 from oralskop.serve.model import SegModel
 
@@ -93,6 +97,9 @@ def create_app(weights, *, arch="deeplabv3_resnet50", imgsz=512, device="cpu",
             return JSONResponse(model.predict(data))
         except ValueError as exc:
             raise HTTPException(400, str(exc))
+        except Exception as exc:  # surface the real cause instead of an opaque 500
+            _log.error("predict failed:\n%s", traceback.format_exc())
+            raise HTTPException(500, f"{type(exc).__name__}: {exc}")
 
     @app.post("/predict/overlay")
     async def predict_overlay(file: UploadFile = File(...)):
@@ -101,6 +108,9 @@ def create_app(weights, *, arch="deeplabv3_resnet50", imgsz=512, device="cpu",
             png = model.predict_overlay(data)
         except ValueError as exc:
             raise HTTPException(400, str(exc))
+        except Exception as exc:
+            _log.error("predict/overlay failed:\n%s", traceback.format_exc())
+            raise HTTPException(500, f"{type(exc).__name__}: {exc}")
         return StreamingResponse(io.BytesIO(png), media_type="image/png")
 
     return app
