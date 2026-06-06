@@ -107,12 +107,27 @@ def resolve_run_dir(base: Path, name: str, exist_ok: bool) -> Path:
 
 
 @torch.no_grad()
-def collect_scores(model, loader, device, *, limit: int | None = None, desc: str = "val"):
+def collect_scores(
+    model,
+    loader,
+    device,
+    *,
+    limit: int | None = None,
+    desc: str = "val",
+    progress: bool = True,
+    leave: bool = True,
+):
     """Run the model over a loader -> (y_true, y_score) numpy arrays [N, C]."""
     model.eval()
     trues, scores = [], []
     seen = 0
-    for imgs, targets in tqdm(loader, desc=desc, leave=False):
+    for imgs, targets in tqdm(
+        loader,
+        desc=desc,
+        leave=leave,
+        dynamic_ncols=True,
+        disable=not progress,
+    ):
         logits = model(imgs.to(device))
         scores.append(torch.sigmoid(logits).float().cpu().numpy())
         trues.append(targets.numpy())
@@ -203,6 +218,9 @@ def main(argv: list[str] | None = None) -> None:
 
     epochs = int(cfg.get("epochs", 30))
     threshold = float(cfg.get("threshold", 0.5))
+    progress = bool(cfg.get("progress", True))
+    progress_leave = bool(cfg.get("progress_leave", True))
+    log_interval = int(cfg.get("log_interval", 50) or 0)
     best_map = -1.0
     print(f"Training {cfg.get('arch', 'convnext_tiny')} for {epochs} epochs -> {out_dir}")
 
@@ -210,7 +228,14 @@ def main(argv: list[str] | None = None) -> None:
         t0 = time.time()
         model.train()
         loss_sum, n = 0.0, 0
-        for imgs, targets in tqdm(train_loader, desc=f"epoch {epoch}/{epochs}", leave=False):
+        train_batches = tqdm(
+            train_loader,
+            desc=f"epoch {epoch}/{epochs}",
+            leave=progress_leave,
+            dynamic_ncols=True,
+            disable=not progress,
+        )
+        for step, (imgs, targets) in enumerate(train_batches, 1):
             imgs, targets = imgs.to(device), targets.to(device)
             optimizer.zero_grad()
             with torch.amp.autocast("cuda", enabled=use_amp):
@@ -218,14 +243,36 @@ def main(argv: list[str] | None = None) -> None:
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
-            loss_sum += float(loss) * imgs.shape[0]
+            batch_loss = float(loss.detach())
+            loss_sum += batch_loss * imgs.shape[0]
             n += imgs.shape[0]
+            avg_loss = loss_sum / max(n, 1)
+            lr = optimizer.param_groups[0]["lr"]
+            if progress:
+                train_batches.set_postfix(
+                    loss=f"{avg_loss:.4f}",
+                    batch=f"{batch_loss:.4f}",
+                    lr=f"{lr:.2e}",
+                )
+            if log_interval and (step == 1 or step % log_interval == 0 or step == len(train_loader)):
+                tqdm.write(
+                    f"epoch {epoch}/{epochs} batch {step}/{len(train_loader)} "
+                    f"loss {avg_loss:.4f} batch_loss {batch_loss:.4f} "
+                    f"lr {lr:.2e} elapsed {time.time() - t0:.0f}s"
+                )
         train_loss = loss_sum / max(n, 1)
 
         line = f"epoch {epoch:3d}  train_loss {train_loss:.4f}"
         m = None
         if len(val_ds) > 0:
-            y_true, y_score = collect_scores(model, val_loader, device, desc=f"val {epoch}")
+            y_true, y_score = collect_scores(
+                model,
+                val_loader,
+                device,
+                desc=f"val {epoch}",
+                progress=progress,
+                leave=progress_leave,
+            )
             m = multilabel_metrics(y_true, y_score, vocab.names, threshold=threshold)
             line += (f"  macro_mAP {m['macro_map']:.4f}  micro_AP {m['micro_ap']:.4f}"
                      f"  macro_F1 {m['macro_f1']:.4f}  micro_F1 {m['micro_f1']:.4f}")

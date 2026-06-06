@@ -41,6 +41,9 @@ num_workers: 8
 device: cuda
 amp: true
 seed: 42
+progress: true                              # tqdm train/val progress bars
+progress_leave: true                        # keep epoch bars visible in notebooks
+log_interval: 50                            # print train loss every N batches; 0 = epoch-only
 
 # --- output / logging -------------------------------------------------------
 out_dir: runs/clf
