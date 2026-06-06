@@ -271,6 +271,47 @@ Without `--weights` it runs an untrained head (pipeline smoke test only).
 
 ---
 
+## 3e. Serve a torchseg model as an HTTP endpoint (FastAPI)
+
+Wraps a trained **torchseg** checkpoint in a FastAPI server. The model needs nothing
+but its `.pt` file — `arch` / `num_classes` / `class_names` are read from the checkpoint.
+Install the serving deps once: `uv sync --extra serve`.
+
+Endpoints: `GET /` (browser upload form), `GET /health`, `GET /info`,
+`POST /predict` (multipart `file=@photo.jpg` → JSON: per-component class name,
+confidence, bbox, area + a per-class coverage summary), `POST /predict/overlay`
+(→ annotated PNG with colored masks).
+
+**In a Jupyter notebook (share a public URL with a friend via ngrok):**
+
+```python
+from oralskop.serve.notebook import serve
+server = serve(
+    weights="runs/seg/deeplabv3_alphadent/best.pt",
+    device="cuda",                          # or "cpu"
+    ngrok_authtoken="<token>",              # https://dashboard.ngrok.com (free)
+)
+print(server.url)   # public https URL; open <url>/ in a browser or POST to <url>/predict
+server.stop()       # shut down server + tunnel
+```
+
+The server runs on a background thread, so the kernel stays interactive. Without a
+token it serves locally only (`http://localhost:8000` — reachable on your LAN, not the
+public internet). See `notebooks/serve_api.ipynb` for the full walkthrough.
+
+**Standalone (no notebook):**
+
+```bash
+uv run python -m oralskop.serve.app \
+    --weights runs/seg/deeplabv3_alphadent/best.pt --device cuda --port 8000
+# then: curl -F file=@photo.jpg http://localhost:8000/predict
+```
+
+Args: `--weights`, `--arch` (fallback if no metadata), `--imgsz`, `--device`, `--conf`
+(min confidence per detection), `--min-area-frac`, `--host`, `--port`.
+
+---
+
 ## 4. Run on the cluster (SLURM + Apptainer)
 
 ```bash
@@ -388,5 +429,6 @@ Needs a small one-time converter, then it's config-only forever after:
 | Test torch seg (visual)  | `uv run python -m oralskop.torchseg.test --datasets alphadent --weights <best.pt> --num_imgs 8 --save runs/seg/test_preds` |
 | Evaluate                 | `uv run python -m oralskop.eval.evaluate --weights <best.pt> --data data/alphadent/data.yaml` |
 | Visualize masks          | `uv run python -m oralskop.viz.visualize --dataset alphadent --num_imgs 12` |
+| Serve as API             | `uv run python -m oralskop.serve.app --weights <best.pt> --port 8000` (or `serve()` in a notebook) |
 | Build container          | `apptainer build oralskop.sif scripts/apptainer.def` |
 | Submit cluster job       | `sbatch scripts/train.sbatch` |
