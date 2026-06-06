@@ -106,6 +106,58 @@ def resolve_run_dir(base: Path, name: str, exist_ok: bool) -> Path:
     return base / f"{name}{i}"
 
 
+def _empty_running_stats() -> dict[str, float]:
+    return {
+        "samples": 0,
+        "label_total": 0,
+        "label_correct": 0,
+        "exact_correct": 0,
+        "tp": 0,
+        "fp": 0,
+        "fn": 0,
+        "loss_sum": 0.0,
+        "loss_n": 0,
+    }
+
+
+def _update_running_stats(
+    stats: dict[str, float],
+    logits: torch.Tensor,
+    targets: torch.Tensor,
+    *,
+    threshold: float,
+    loss_value: float | None = None,
+) -> None:
+    """Accumulate cheap thresholded metrics for live tqdm postfixes."""
+    with torch.no_grad():
+        pred = torch.sigmoid(logits.detach()) >= threshold
+        true = targets.detach().bool()
+        correct = pred == true
+        stats["samples"] += int(true.shape[0])
+        stats["label_total"] += int(true.numel())
+        stats["label_correct"] += int(correct.sum().item())
+        stats["exact_correct"] += int(correct.all(dim=1).sum().item())
+        stats["tp"] += int((pred & true).sum().item())
+        stats["fp"] += int((pred & ~true).sum().item())
+        stats["fn"] += int((~pred & true).sum().item())
+        if loss_value is not None:
+            batch_n = int(true.shape[0])
+            stats["loss_sum"] += float(loss_value) * batch_n
+            stats["loss_n"] += batch_n
+
+
+def _running_summary(stats: dict[str, float]) -> dict[str, float]:
+    label_total = max(int(stats["label_total"]), 1)
+    samples = max(int(stats["samples"]), 1)
+    tp, fp, fn = int(stats["tp"]), int(stats["fp"]), int(stats["fn"])
+    return {
+        "loss": stats["loss_sum"] / max(int(stats["loss_n"]), 1),
+        "micro_accuracy": stats["label_correct"] / label_total,
+        "exact_match_accuracy": stats["exact_correct"] / samples,
+        "micro_f1": (2 * tp / max(2 * tp + fp + fn, 1)),
+    }
+
+
 @torch.no_grad()
 def collect_scores(
     model,
@@ -116,27 +168,57 @@ def collect_scores(
     desc: str = "val",
     progress: bool = True,
     leave: bool = True,
+    criterion=None,
+    threshold: float = 0.5,
+    use_amp: bool = False,
+    return_stats: bool = False,
 ):
     """Run the model over a loader -> (y_true, y_score) numpy arrays [N, C]."""
     model.eval()
     trues, scores = [], []
     seen = 0
-    for imgs, targets in tqdm(
+    stats = _empty_running_stats()
+    batches = tqdm(
         loader,
         desc=desc,
         leave=leave,
         dynamic_ncols=True,
         disable=not progress,
-    ):
-        logits = model(imgs.to(device))
+    )
+    for imgs, targets in batches:
+        imgs = imgs.to(device)
+        targets_device = targets.to(device)
+        with torch.amp.autocast("cuda", enabled=use_amp):
+            logits = model(imgs)
+            loss = criterion(logits, targets_device) if criterion is not None else None
+        loss_value = float(loss.detach()) if loss is not None else None
+        _update_running_stats(
+            stats,
+            logits,
+            targets_device,
+            threshold=threshold,
+            loss_value=loss_value,
+        )
+        if progress:
+            s = _running_summary(stats)
+            postfix = {
+                "acc": f"{s['micro_accuracy']:.3f}",
+                "f1": f"{s['micro_f1']:.3f}",
+                "exact": f"{s['exact_match_accuracy']:.3f}",
+            }
+            if loss is not None:
+                postfix["loss"] = f"{s['loss']:.4f}"
+            batches.set_postfix(**postfix)
         scores.append(torch.sigmoid(logits).float().cpu().numpy())
         trues.append(targets.numpy())
         seen += imgs.shape[0]
         if limit and seen >= limit:
             break
     if not trues:
-        return np.zeros((0, 0)), np.zeros((0, 0))
-    return np.concatenate(trues), np.concatenate(scores)
+        empty = (np.zeros((0, 0)), np.zeros((0, 0)))
+        return (*empty, _running_summary(stats)) if return_stats else empty
+    result = (np.concatenate(trues), np.concatenate(scores))
+    return (*result, _running_summary(stats)) if return_stats else result
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -232,7 +314,7 @@ def main(argv: list[str] | None = None) -> None:
     for epoch in range(1, epochs + 1):
         t0 = time.time()
         model.train()
-        loss_sum, n = 0.0, 0
+        train_stats = _empty_running_stats()
         train_batches = tqdm(
             train_loader,
             desc=f"epoch {epoch}/{epochs}",
@@ -244,48 +326,78 @@ def main(argv: list[str] | None = None) -> None:
             imgs, targets = imgs.to(device), targets.to(device)
             optimizer.zero_grad()
             with torch.amp.autocast("cuda", enabled=use_amp):
-                loss = criterion(model(imgs), targets)
+                logits = model(imgs)
+                loss = criterion(logits, targets)
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
             batch_loss = float(loss.detach())
-            loss_sum += batch_loss * imgs.shape[0]
-            n += imgs.shape[0]
-            avg_loss = loss_sum / max(n, 1)
+            _update_running_stats(
+                train_stats,
+                logits,
+                targets,
+                threshold=threshold,
+                loss_value=batch_loss,
+            )
+            train_summary = _running_summary(train_stats)
             lr = optimizer.param_groups[0]["lr"]
             if progress:
                 train_batches.set_postfix(
-                    loss=f"{avg_loss:.4f}",
-                    batch=f"{batch_loss:.4f}",
+                    loss=f"{train_summary['loss']:.4f}",
+                    acc=f"{train_summary['micro_accuracy']:.3f}",
+                    f1=f"{train_summary['micro_f1']:.3f}",
+                    exact=f"{train_summary['exact_match_accuracy']:.3f}",
                     lr=f"{lr:.2e}",
                 )
             if log_interval and (step == 1 or step % log_interval == 0 or step == len(train_loader)):
                 tqdm.write(
                     f"epoch {epoch}/{epochs} batch {step}/{len(train_loader)} "
-                    f"loss {avg_loss:.4f} batch_loss {batch_loss:.4f} "
+                    f"loss {train_summary['loss']:.4f} batch_loss {batch_loss:.4f} "
+                    f"acc {train_summary['micro_accuracy']:.4f} "
+                    f"f1 {train_summary['micro_f1']:.4f} "
+                    f"exact {train_summary['exact_match_accuracy']:.4f} "
                     f"lr {lr:.2e} elapsed {time.time() - t0:.0f}s"
                 )
-        train_loss = loss_sum / max(n, 1)
+        train_summary = _running_summary(train_stats)
+        train_loss = train_summary["loss"]
 
         line = f"epoch {epoch:3d}  train_loss {train_loss:.4f}"
+        line += (f"  train_acc {train_summary['micro_accuracy']:.4f}"
+                 f"  train_F1 {train_summary['micro_f1']:.4f}"
+                 f"  train_exact {train_summary['exact_match_accuracy']:.4f}")
         m = None
+        val_summary = None
         if len(val_ds) > 0:
-            y_true, y_score = collect_scores(
+            y_true, y_score, val_summary = collect_scores(
                 model,
                 val_loader,
                 device,
                 desc=f"val {epoch}",
                 progress=progress,
                 leave=progress_leave,
+                criterion=criterion,
+                threshold=threshold,
+                use_amp=use_amp,
+                return_stats=True,
             )
             m = multilabel_metrics(y_true, y_score, vocab.names, threshold=threshold)
+            line += f"  val_loss {val_summary['loss']:.4f}"
             line += (f"  macro_mAP {m['macro_map']:.4f}  micro_AP {m['micro_ap']:.4f}"
                      f"  macro_F1 {m['macro_f1']:.4f}  micro_F1 {m['micro_f1']:.4f}")
             line += (f"  macro_acc {m['macro_accuracy']:.4f}"
                      f"  micro_acc {m['micro_accuracy']:.4f}"
                      f"  exact_acc {m['exact_match_accuracy']:.4f}")
 
-        record = {"epoch": epoch, "train_loss": train_loss, "lr": optimizer.param_groups[0]["lr"]}
+        record = {
+            "epoch": epoch,
+            "train_loss": train_loss,
+            "train_micro_accuracy": train_summary["micro_accuracy"],
+            "train_micro_f1": train_summary["micro_f1"],
+            "train_exact_match_accuracy": train_summary["exact_match_accuracy"],
+            "lr": optimizer.param_groups[0]["lr"],
+        }
+        if val_summary is not None:
+            record["val_loss"] = val_summary["loss"]
         if m is not None:
             record.update({k: m[k] for k in
                            ("macro_map", "micro_ap", "macro_f1", "micro_f1",
@@ -309,7 +421,15 @@ def main(argv: list[str] | None = None) -> None:
             tqdm.write(format_per_class(m))
 
         if wb is not None:
-            log = {"train/loss": train_loss, "lr": optimizer.param_groups[0]["lr"]}
+            log = {
+                "train/loss": train_loss,
+                "train/micro_accuracy": train_summary["micro_accuracy"],
+                "train/micro_F1": train_summary["micro_f1"],
+                "train/exact_match_accuracy": train_summary["exact_match_accuracy"],
+                "lr": optimizer.param_groups[0]["lr"],
+            }
+            if val_summary is not None:
+                log["val/loss"] = val_summary["loss"]
             if m is not None:
                 log.update({"val/macro_mAP": m["macro_map"], "val/micro_AP": m["micro_ap"],
                             "val/macro_F1": m["macro_f1"], "val/micro_F1": m["micro_f1"],
