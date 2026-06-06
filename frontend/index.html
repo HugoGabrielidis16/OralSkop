@@ -1,0 +1,1663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>OralSkop</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+  <style>
+    /* ── Design tokens ── */
+    :root {
+      --teal:        #0F6E56;
+      --teal-deep:   #0A4D3C;
+      --teal-light:  #5EC9A8;
+      --coral:       #D85A30;
+      --coral-tint:  #FDEDE6;
+      --cream:       #FAF9F6;
+      --charcoal:    #1F2937;
+      --gray:        #6B7280;
+      --line:        #E5E7EB;
+      --white:       #FFFFFF;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--cream);
+      color: var(--charcoal);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    /* ── App shell ── */
+    #app {
+      width: 100%;
+      max-width: 390px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* ── Screens ── */
+    .screen { display: none; flex-direction: column; flex: 1; padding-bottom: 72px; }
+    .screen.active { display: flex; }
+
+    /* ── Header ── */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 20px;
+      background: var(--white);
+      border-bottom: 1px solid var(--line);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 800;
+      font-size: 18px;
+      color: var(--charcoal);
+    }
+
+    .logo-mark {
+      width: 32px;
+      height: 32px;
+      background: var(--teal);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 14px;
+      font-weight: 800;
+    }
+
+    .role-toggle {
+      display: flex;
+      background: var(--line);
+      border-radius: 100px;
+      padding: 2px;
+      gap: 2px;
+    }
+
+    .role-toggle button {
+      border: none;
+      background: transparent;
+      padding: 5px 12px;
+      border-radius: 100px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      color: var(--gray);
+      transition: all 0.15s;
+    }
+
+    .role-toggle button.active {
+      background: var(--teal);
+      color: var(--white);
+    }
+
+    /* ── Bottom nav ── */
+    .bottom-nav {
+      position: fixed;
+      bottom: 0;
+      width: 100%;
+      max-width: 390px;
+      background: var(--white);
+      border-top: 1px solid var(--line);
+      display: flex;
+      z-index: 10;
+    }
+
+    .nav-tab {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 10px 0;
+      gap: 4px;
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--gray);
+      transition: color 0.15s;
+    }
+
+    .nav-tab.active { color: var(--teal); }
+    .nav-tab svg { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 1.5; }
+
+    /* ── Buttons ── */
+    .btn-primary {
+      width: 100%;
+      padding: 16px;
+      background: var(--teal);
+      color: var(--white);
+      border: none;
+      border-radius: 100px;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .btn-primary:hover { background: var(--teal-deep); }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .btn-secondary {
+      width: 100%;
+      padding: 14px;
+      background: transparent;
+      color: var(--teal);
+      border: 2px solid var(--teal);
+      border-radius: 100px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    /* ── Login screen ── */
+    #screen-login {
+      justify-content: center;
+      align-items: center;
+      padding: 40px 24px;
+      gap: 24px;
+      min-height: 100vh;
+    }
+
+    .login-logo {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .login-logo-mark {
+      width: 72px;
+      height: 72px;
+      background: var(--teal);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 32px;
+      font-weight: 800;
+    }
+
+    .login-title { font-size: 28px; font-weight: 800; }
+    .login-subtitle { color: var(--gray); font-size: 14px; text-align: center; }
+
+    .login-divider {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      color: var(--gray);
+      font-size: 13px;
+    }
+
+    .login-divider::before,
+    .login-divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--line);
+    }
+
+    .google-btn {
+      width: 100%;
+      padding: 14px;
+      background: var(--white);
+      color: var(--charcoal);
+      border: 1px solid var(--line);
+      border-radius: 100px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      transition: border-color 0.15s;
+    }
+
+    .google-btn:hover { border-color: var(--teal); }
+
+    .google-icon {
+      width: 20px;
+      height: 20px;
+    }
+
+    /* ── Guide screen ── */
+    #screen-guide { padding: 0 0 72px; overflow-y: auto; }
+
+    .guide-content { padding: 24px 20px; display: flex; flex-direction: column; gap: 24px; }
+
+    .screen-title { font-size: 22px; font-weight: 800; }
+    .screen-subtitle { color: var(--gray); font-size: 14px; margin-top: 4px; }
+
+    .viewfinder {
+      background: var(--charcoal);
+      border-radius: 12px;
+      padding: 32px 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .mouth-frame {
+      width: 200px;
+      height: 120px;
+      border: 2px dashed var(--teal-light);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+
+    .mouth-inner {
+      display: flex;
+      gap: 4px;
+    }
+
+    .tooth {
+      width: 18px;
+      height: 24px;
+      background: var(--white);
+      border-radius: 4px;
+      opacity: 0.9;
+    }
+
+    .viewfinder-caption {
+      color: var(--teal-light);
+      font-size: 12px;
+      font-style: italic;
+      text-align: center;
+    }
+
+    .tips-list { display: flex; flex-direction: column; gap: 16px; }
+
+    .tip-item { display: flex; gap: 14px; align-items: flex-start; }
+
+    .tip-number {
+      width: 28px;
+      height: 28px;
+      min-width: 28px;
+      background: var(--teal);
+      border-radius: 50%;
+      color: var(--white);
+      font-size: 13px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .tip-text strong { display: block; font-size: 14px; font-weight: 700; }
+    .tip-text span { font-size: 13px; color: var(--gray); }
+
+    /* Hidden file input for camera */
+    #camera-input { display: none; }
+
+    /* ── Loading overlay ── */
+    #loading-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: var(--cream);
+      z-index: 100;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+    }
+
+    #loading-overlay.visible { display: flex; }
+
+    .spinner {
+      width: 48px;
+      height: 48px;
+      border: 4px solid var(--line);
+      border-top-color: var(--teal);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .loading-title { font-size: 20px; font-weight: 700; }
+    .loading-sub { color: var(--gray); font-size: 14px; }
+
+    /* ── Patient screen ── */
+    #screen-patient { padding: 0 0 72px; overflow-y: auto; }
+
+    .patient-content { padding: 24px 20px; display: flex; flex-direction: column; gap: 20px; }
+
+    .arcade-section { display: flex; flex-direction: column; gap: 8px; }
+
+    .arcade-svg {
+      background: var(--white);
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      overflow: hidden;
+    }
+
+    .arcade-caption { font-size: 12px; color: var(--gray); text-align: center; }
+
+    .masked-image-wrap {
+      border-radius: 12px;
+      overflow: hidden;
+      background: var(--charcoal);
+    }
+
+    .masked-image-wrap img {
+      width: 100%;
+      display: block;
+    }
+
+    .detections-list { display: flex; flex-direction: column; gap: 12px; }
+
+    .detection-card {
+      background: var(--white);
+      border-radius: 12px;
+      border-left: 4px solid var(--coral);
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .detection-card.escalation {
+      background: var(--coral-tint);
+    }
+
+    .detection-card-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+    }
+
+    .detection-condition { font-size: 15px; font-weight: 700; }
+    .detection-tooth { font-size: 12px; color: var(--gray); }
+
+    .detection-severity {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--coral);
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .severity-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--coral);
+    }
+
+    .patient-footer { text-align: center; font-size: 12px; color: var(--gray); font-style: italic; padding: 8px 0; }
+
+    /* ── Avatar menu ── */
+    .avatar-btn {
+      width: 34px; height: 34px;
+      border-radius: 50%;
+      background: var(--teal);
+      color: var(--white);
+      border: none;
+      font-family: 'Inter', sans-serif;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .avatar-dropdown {
+      display: none;
+      position: absolute;
+      top: 54px;
+      right: 16px;
+      background: var(--white);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+      z-index: 100;
+      min-width: 200px;
+      overflow: hidden;
+    }
+
+    .avatar-dropdown.open { display: block; }
+
+    .avatar-dropdown-head {
+      padding: 14px 16px 10px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .avatar-dropdown-name {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--charcoal);
+    }
+
+    .avatar-dropdown-email {
+      font-size: 12px;
+      color: var(--gray);
+      margin-top: 2px;
+    }
+
+    .avatar-dropdown-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 16px;
+      font-size: 13px;
+      color: var(--charcoal);
+      cursor: pointer;
+      border: none;
+      background: none;
+      width: 100%;
+      text-align: left;
+      font-family: 'Inter', sans-serif;
+    }
+
+    .avatar-dropdown-item:hover { background: var(--cream); }
+
+    .avatar-dropdown-item.danger { color: var(--coral); }
+
+    .avatar-profile-section {
+      padding: 10px 16px 4px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .avatar-profile-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .avatar-profile-label {
+      font-size: 12px;
+      color: var(--gray);
+      flex-shrink: 0;
+    }
+
+    .avatar-profile-input {
+      font-size: 13px;
+      font-family: 'Inter', sans-serif;
+      color: var(--charcoal);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 4px 8px;
+      width: 80px;
+      text-align: right;
+      background: var(--cream);
+      outline: none;
+    }
+
+    .avatar-toggle {
+      position: relative;
+      display: inline-block;
+      width: 36px;
+      height: 20px;
+      flex-shrink: 0;
+    }
+
+    .avatar-toggle input { display: none; }
+
+    .avatar-toggle-slider {
+      position: absolute;
+      inset: 0;
+      background: var(--line);
+      border-radius: 20px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .avatar-toggle-slider::before {
+      content: '';
+      position: absolute;
+      width: 14px; height: 14px;
+      left: 3px; top: 3px;
+      background: white;
+      border-radius: 50%;
+      transition: transform 0.2s;
+    }
+
+    .avatar-toggle input:checked + .avatar-toggle-slider { background: var(--teal); }
+    .avatar-toggle input:checked + .avatar-toggle-slider::before { transform: translateX(16px); }
+
+    /* ── Findings drawer ── */
+    .findings-handle {
+      position: fixed;
+      right: 0;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 40;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      background: var(--teal);
+      color: var(--white);
+      border-radius: 10px 0 0 10px;
+      padding: 12px 8px;
+      gap: 6px;
+      cursor: pointer;
+      box-shadow: -2px 0 12px rgba(0,0,0,0.15);
+      writing-mode: vertical-rl;
+      border: none;
+      font-family: 'Inter', sans-serif;
+    }
+
+    .findings-handle.visible { display: flex; }
+
+    .findings-handle-label {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      writing-mode: vertical-rl;
+      text-orientation: mixed;
+      transform: rotate(180deg);
+    }
+
+    .findings-count {
+      background: var(--coral);
+      color: var(--white);
+      border-radius: 50%;
+      width: 20px;
+      height: 20px;
+      font-size: 11px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      writing-mode: horizontal-tb;
+    }
+
+    .findings-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.35);
+      z-index: 45;
+    }
+
+    .findings-overlay.visible { display: block; }
+
+    .findings-drawer {
+      position: fixed;
+      top: 0;
+      right: 0;
+      height: 100%;
+      width: 85%;
+      max-width: 340px;
+      background: var(--cream);
+      z-index: 46;
+      display: flex;
+      flex-direction: column;
+      transform: translateX(100%);
+      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: -4px 0 24px rgba(0,0,0,0.15);
+    }
+
+    .findings-drawer.open { transform: translateX(0); }
+
+    .findings-drawer-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 20px 20px 16px;
+      border-bottom: 1px solid var(--line);
+      background: var(--white);
+      flex-shrink: 0;
+    }
+
+    .findings-drawer-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--charcoal);
+    }
+
+    .findings-drawer-close {
+      width: 32px;
+      height: 32px;
+      border: none;
+      background: var(--line);
+      border-radius: 50%;
+      font-size: 18px;
+      line-height: 1;
+      cursor: pointer;
+      color: var(--charcoal);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .findings-drawer-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    /* ── Dentist modal placeholder ── */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.4);
+      z-index: 50;
+      align-items: flex-end;
+      justify-content: center;
+    }
+
+    .modal-overlay.visible { display: flex; }
+
+    .modal-sheet {
+      background: var(--white);
+      border-radius: 20px 20px 0 0;
+      padding: 24px 20px 40px;
+      width: 100%;
+      max-width: 390px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .modal-header { display: flex; justify-content: space-between; align-items: center; }
+    .modal-title { font-size: 18px; font-weight: 800; }
+    .modal-subtitle { font-size: 13px; color: var(--gray); margin-top: 2px; }
+    .modal-close {
+      background: var(--line);
+      border: none;
+      border-radius: 50%;
+      width: 32px;
+      height: 32px;
+      font-size: 18px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .dentist-list { display: flex; flex-direction: column; gap: 12px; }
+
+    .dentist-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .dentist-info strong { display: block; font-size: 14px; font-weight: 700; }
+    .dentist-meta { font-size: 12px; color: var(--gray); }
+    .dentist-status { font-size: 11px; }
+    .dentist-status.available { color: var(--teal); font-weight: 600; }
+    .dentist-status.limited { color: var(--coral); font-weight: 600; }
+
+    .book-btn {
+      background: var(--teal);
+      color: var(--white);
+      border: none;
+      border-radius: 100px;
+      padding: 7px 16px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    /* ── Error toast ── */
+    #toast {
+      display: none;
+      position: fixed;
+      bottom: 88px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--charcoal);
+      color: var(--white);
+      padding: 12px 20px;
+      border-radius: 100px;
+      font-size: 13px;
+      font-weight: 600;
+      z-index: 200;
+      white-space: nowrap;
+    }
+
+    /* ── Chatbot badge ── */
+    #chatbot-badge {
+      display: none;
+      position: fixed;
+      bottom: 88px;
+      right: 16px;
+      z-index: 300;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 8px;
+    }
+
+    #chatbot-badge.visible { display: flex; }
+
+    .chat-bubble-btn {
+      width: 52px; height: 52px;
+      background: var(--teal);
+      border-radius: 50%;
+      border: none;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 4px 12px rgba(15,110,86,0.4);
+      position: relative;
+    }
+
+    .chat-bubble-btn svg { width: 24px; height: 24px; stroke: white; fill: none; stroke-width: 1.8; }
+
+    .chat-notif-dot {
+      position: absolute;
+      top: 2px; right: 2px;
+      width: 12px; height: 12px;
+      background: var(--coral);
+      border-radius: 50%;
+      border: 2px solid white;
+      animation: pulse 1.5s ease-in-out 3;
+    }
+
+    @keyframes pulse {
+      0%,100% { transform: scale(1); opacity: 1; }
+      50%      { transform: scale(1.4); opacity: 0.7; }
+    }
+
+    .chat-label {
+      background: var(--charcoal);
+      color: white;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 5px 10px;
+      border-radius: 100px;
+      white-space: nowrap;
+    }
+
+    /* ── Chatbot panel ── */
+    #chatbot-panel {
+      display: none;
+      position: fixed;
+      bottom: 0; right: 0;
+      width: 100%; max-width: 390px;
+      height: 70vh;
+      background: var(--white);
+      border-radius: 20px 20px 0 0;
+      box-shadow: 0 -4px 24px rgba(0,0,0,0.12);
+      z-index: 400;
+      flex-direction: column;
+    }
+
+    #chatbot-panel.visible { display: flex; }
+
+    .chat-panel-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .chat-panel-title {
+      display: flex; align-items: center; gap: 10px;
+    }
+
+    .chat-panel-logo {
+      width: 32px; height: 32px;
+      background: var(--teal);
+      border-radius: 50%;
+      color: white; font-weight: 800; font-size: 13px;
+      display: flex; align-items: center; justify-content: center;
+    }
+
+    .chat-panel-name { font-weight: 700; font-size: 15px; }
+    .chat-panel-sub  { font-size: 11px; color: var(--teal); font-weight: 600; }
+
+    .chat-close-btn {
+      background: var(--line); border: none; border-radius: 50%;
+      width: 30px; height: 30px; font-size: 16px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+    }
+
+    .chat-messages {
+      flex: 1; overflow-y: auto;
+      padding: 16px 16px 8px;
+      display: flex; flex-direction: column; gap: 10px;
+    }
+
+    .chat-msg {
+      max-width: 80%;
+      padding: 10px 14px;
+      border-radius: 16px;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .chat-msg.assistant {
+      background: #EAF4F1;
+      color: var(--charcoal);
+      align-self: flex-start;
+      border-bottom-left-radius: 4px;
+      max-width: 90%;
+    }
+
+    /* Markdown inside assistant bubbles */
+    .chat-msg.assistant p { margin: 0 0 8px; }
+    .chat-msg.assistant p:last-child { margin-bottom: 0; }
+    .chat-msg.assistant strong { font-weight: 700; }
+    .chat-msg.assistant em { font-style: italic; }
+    .chat-msg.assistant ul, .chat-msg.assistant ol { padding-left: 18px; margin: 6px 0; }
+    .chat-msg.assistant li { margin-bottom: 3px; }
+    .chat-msg.assistant h1, .chat-msg.assistant h2, .chat-msg.assistant h3 {
+      font-size: 13px; font-weight: 700; margin: 8px 0 4px;
+    }
+    .chat-msg.assistant hr { border: none; border-top: 1px solid var(--line); margin: 8px 0; }
+
+    .chat-msg.user {
+      background: var(--teal);
+      color: white;
+      align-self: flex-end;
+      border-bottom-right-radius: 4px;
+    }
+
+    .chat-typing {
+      align-self: flex-start;
+      background: var(--line);
+      border-radius: 16px;
+      padding: 10px 16px;
+      font-size: 13px;
+      color: var(--gray);
+      display: none;
+    }
+
+    .chat-typing.visible { display: block; }
+
+    .chat-input-row {
+      display: flex; gap: 8px;
+      padding: 12px 16px;
+      border-top: 1px solid var(--line);
+    }
+
+    .chat-input {
+      flex: 1;
+      padding: 10px 14px;
+      border: 1px solid var(--line);
+      border-radius: 100px;
+      font-size: 14px;
+      font-family: inherit;
+      outline: none;
+    }
+
+    .chat-send-btn {
+      width: 40px; height: 40px;
+      background: var(--teal);
+      border: none; border-radius: 50%;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .chat-send-btn svg { width: 18px; height: 18px; stroke: white; fill: none; stroke-width: 2; }
+  </style>
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ═══ LOGIN SCREEN ═══ -->
+  <div id="screen-login" class="screen active">
+    <div class="login-logo">
+      <div class="login-logo-mark">O</div>
+      <div class="login-title">OralSkop</div>
+      <div class="login-subtitle">AI-powered oral health screening</div>
+    </div>
+
+    <button class="google-btn" onclick="loginWithGoogle()">
+      <svg class="google-icon" viewBox="0 0 24 24">
+        <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+        <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+        <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/>
+        <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+      </svg>
+      Continue with Google
+    </button>
+
+    <div class="login-divider">or</div>
+
+    <div style="display:flex;flex-direction:column;gap:10px;width:100%">
+      <input id="email-input" type="email" placeholder="Email" style="padding:14px 16px;border:1px solid var(--line);border-radius:12px;font-size:15px;font-family:inherit;outline:none;" />
+      <input id="password-input" type="password" placeholder="Password" style="padding:14px 16px;border:1px solid var(--line);border-radius:12px;font-size:15px;font-family:inherit;outline:none;" />
+      <button class="btn-primary" onclick="loginWithEmail()">Sign in</button>
+      <button class="btn-secondary" onclick="registerWithEmail()">Create account</button>
+    </div>
+  </div>
+
+  <!-- ═══ GUIDE SCREEN ═══ -->
+  <div id="screen-guide" class="screen">
+    <div class="header">
+      <div class="logo">
+        <div class="logo-mark">O</div>
+        OralSkop
+      </div>
+      <div class="role-toggle">
+        <button class="active" onclick="setRole('patient')">Patient</button>
+        <button onclick="setRole('dentist')">Dentist</button>
+      </div>
+      <button class="avatar-btn" id="avatar-btn-guide" onclick="toggleAvatarMenu()" style="display:none">?</button>
+    </div>
+
+    <div class="guide-content">
+      <div>
+        <div class="screen-title">Frame your photo correctly</div>
+        <div class="screen-subtitle">For a reliable analysis, follow these markers.</div>
+      </div>
+
+      <div class="viewfinder">
+        <div class="mouth-frame">
+          <div class="mouth-inner">
+            <div class="tooth"></div>
+            <div class="tooth"></div>
+            <div class="tooth"></div>
+            <div class="tooth"></div>
+            <div class="tooth"></div>
+          </div>
+        </div>
+        <div class="viewfinder-caption">Align your mouth in the frame</div>
+      </div>
+
+      <div class="tips-list">
+        <div class="tip-item">
+          <div class="tip-number">1</div>
+          <div class="tip-text"><strong>Good lighting</strong><span>Face a source of light</span></div>
+        </div>
+        <div class="tip-item">
+          <div class="tip-number">2</div>
+          <div class="tip-text"><strong>Open mouth</strong><span>Show teeth and gums clearly</span></div>
+        </div>
+        <div class="tip-item">
+          <div class="tip-number">3</div>
+          <div class="tip-text"><strong>Stay sharp</strong><span>Hold the phone steady, no blur</span></div>
+        </div>
+      </div>
+
+      <button class="btn-primary" onclick="triggerCamera()">Take the photo</button>
+      <input type="file" id="camera-input" accept="image/*" capture="environment" onchange="handlePhoto(event)" />
+    </div>
+  </div>
+
+  <!-- ═══ PATIENT SCREEN ═══ -->
+  <div id="screen-patient" class="screen">
+    <div class="header">
+      <div class="logo">
+        <div class="logo-mark">O</div>
+        OralSkop
+      </div>
+      <div class="role-toggle">
+        <button class="active" onclick="setRole('patient')">Patient</button>
+        <button onclick="setRole('dentist')">Dentist</button>
+      </div>
+      <button class="avatar-btn" id="avatar-btn-patient" onclick="toggleAvatarMenu()" style="display:none">?</button>
+    </div>
+
+    <div class="patient-content">
+      <div>
+        <div class="screen-title">Your dental arch</div>
+        <div id="subtitle-detections" class="screen-subtitle">—</div>
+      </div>
+
+      <!-- Masked image from AI -->
+      <div id="masked-image-wrap" class="masked-image-wrap" style="display:none">
+        <img id="masked-image" src="" alt="Analysis overlay" />
+      </div>
+
+      <!-- Arcade SVG (tooth_number null-safe) -->
+      <div class="arcade-section">
+        <div class="arcade-svg">
+          <svg viewBox="0 0 340 140" width="100%" xmlns="http://www.w3.org/2000/svg" id="arcade-svg">
+            <!-- Upper arch — teeth 1-7 left, 8-14 right -->
+            <g id="upper-arch">
+              <rect id="tooth-1"  x="20"  y="20" width="28" height="36" rx="6" fill="white" stroke="#E5E7EB" stroke-width="1.5"/>
+              <rect id="tooth-2"  x="52"  y="14" width="26" height="38" rx="6" fill="white" stroke="#E5E7EB" stroke-width="1.5"/>
+              <rect id="tooth-3"  x="82"  y="10" width="24" height="38" rx="6" fill="white" stroke="#E5E7EB" stroke-width="1.5"/>
+              <rect id="tooth-4"  x="110" y="8"  width="22" height="36" rx="6" fill="white" stroke="#E5E7EB" stroke-width="1.5"/>
+              <rect id="tooth-5"  x="136" y="8"  width="22" height="36" rx="6" fill="white" stroke="#E5E7EB" stroke-width="1.5"/>
+              <rect id="tooth-6"  x="162" y="8"  width="22" height="36" rx="6" fill="white" stroke="#E5E7EB" stroke-width="1.5"/>
+              <rect id="tooth-7"  x="188" y="8"  width="22" height="36" rx="6" fill="white" stroke="#E5E7EB" stroke-width="1.5"/>
+              <rect id="tooth-8"  x="214" y="8"  width="22" height="36" rx="6" fill="white" stroke="#E5E7EB" stroke-width="1.5"/>
+              <rect id="tooth-9"  x="240" y="10" width="24" height="38" rx="6" fill="white" stroke="#E5E7EB" stroke-width="1.5"/>
+              <rect id="tooth-10" x="268" y="14" width="26" height="38" rx="6" fill="white" stroke="#E5E7EB" stroke-width="1.5"/>
+              <rect id="tooth-11" x="298" y="20" width="28" height="36" rx="6" fill="white" stroke="#E5E7EB" stroke-width="1.5"/>
+            </g>
+            <!-- Lower arch -->
+            <g id="lower-arch">
+              <rect id="tooth-12" x="20"  y="88" width="28" height="34" rx="6" fill="white" stroke="#E5E7EB" stroke-width="1.5"/>
+              <rect id="tooth-13" x="52"  y="84" width="26" height="36" rx="6" fill="white" stroke="#E5E7EB" stroke-width="1.5"/>
+              <rect id="tooth-14" x="82"  y="82" width="24" height="36" rx="6" fill="white" stroke="#E5E7EB" stroke-width="1.5"/>
+              <rect id="tooth-15" x="110" y="82" width="22" height="34" rx="6" fill="white" stroke="#E5E7EB" stroke-width="1.5"/>
+              <rect id="tooth-16" x="136" y="82" width="22" height="34" rx="6" fill="white" stroke="#E5E7EB" stroke-width="1.5"/>
+              <rect id="tooth-17" x="162" y="82" width="22" height="34" rx="6" fill="white" stroke="#E5E7EB" stroke-width="1.5"/>
+              <rect id="tooth-18" x="188" y="82" width="22" height="34" rx="6" fill="white" stroke="#E5E7EB" stroke-width="1.5"/>
+              <rect id="tooth-19" x="214" y="82" width="22" height="34" rx="6" fill="white" stroke="#E5E7EB" stroke-width="1.5"/>
+              <rect id="tooth-20" x="240" y="82" width="24" height="36" rx="6" fill="white" stroke="#E5E7EB" stroke-width="1.5"/>
+              <rect id="tooth-21" x="268" y="84" width="26" height="36" rx="6" fill="white" stroke="#E5E7EB" stroke-width="1.5"/>
+              <rect id="tooth-22" x="298" y="88" width="28" height="34" rx="6" fill="white" stroke="#E5E7EB" stroke-width="1.5"/>
+            </g>
+          </svg>
+        </div>
+        <div class="arcade-caption">Tap a highlighted tooth for details</div>
+      </div>
+
+      <!-- Detections (rendered into drawer) -->
+
+      <button class="btn-primary" onclick="showDentistModal()">Send to a dentist</button>
+      <div class="patient-footer">Saved for follow-up · comparable over time</div>
+    </div>
+  </div>
+
+  <!-- ═══ BOTTOM NAV (patient app only) ═══ -->
+  <nav class="bottom-nav" id="bottom-nav">
+    <button class="nav-tab active" id="tab-guide" onclick="navigateTo('guide')">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12h8M12 8v8"/></svg>
+      Guide
+    </button>
+    <button class="nav-tab" id="tab-patient" onclick="navigateTo('patient')">
+      <svg viewBox="0 0 24 24"><path d="M3 8c0-1.1.9-2 2-2h14a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/><path d="M8 6V4M16 6V4M7 12h2M11 12h2M15 12h2"/></svg>
+      Patient
+    </button>
+  </nav>
+
+</div><!-- /app -->
+
+<!-- ═══ AVATAR DROPDOWN ═══ -->
+<div class="avatar-dropdown" id="avatar-dropdown">
+  <div class="avatar-dropdown-head">
+    <div class="avatar-dropdown-name" id="avatar-name">—</div>
+    <div class="avatar-dropdown-email" id="avatar-email">—</div>
+  </div>
+  <!-- Profile fields -->
+  <div class="avatar-profile-section">
+    <div class="avatar-profile-row">
+      <label class="avatar-profile-label">Age</label>
+      <input class="avatar-profile-input" id="profile-age" type="number" min="1" max="120" placeholder="—" oninput="saveProfile()" />
+    </div>
+    <div class="avatar-profile-row">
+      <label class="avatar-profile-label">Sex</label>
+      <select class="avatar-profile-input" id="profile-sex" onchange="saveProfile()">
+        <option value="">—</option>
+        <option value="M">Male</option>
+        <option value="F">Female</option>
+        <option value="O">Other</option>
+      </select>
+    </div>
+    <div class="avatar-profile-row">
+      <label class="avatar-profile-label">Smoker</label>
+      <label class="avatar-toggle">
+        <input type="checkbox" id="profile-smoker" onchange="saveProfile()" />
+        <span class="avatar-toggle-slider"></span>
+      </label>
+    </div>
+    <div class="avatar-profile-row">
+      <label class="avatar-profile-label">Diabetic</label>
+      <label class="avatar-toggle">
+        <input type="checkbox" id="profile-diabetic" onchange="saveProfile()" />
+        <span class="avatar-toggle-slider"></span>
+      </label>
+    </div>
+  </div>
+  <button class="avatar-dropdown-item danger" onclick="logOut()">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+    Log out
+  </button>
+</div>
+
+<!-- ═══ FINDINGS DRAWER ═══ -->
+<button class="findings-handle" id="findings-handle" onclick="openFindings()">
+  <span class="findings-count" id="findings-count">0</span>
+  <span class="findings-handle-label">Findings</span>
+</button>
+
+<div class="findings-overlay" id="findings-overlay" onclick="closeFindings()"></div>
+
+<div class="findings-drawer" id="findings-drawer">
+  <div class="findings-drawer-header">
+    <div class="findings-drawer-title">Findings</div>
+    <button class="findings-drawer-close" onclick="closeFindings()">×</button>
+  </div>
+  <div class="findings-drawer-body">
+    <div id="detections-list" class="detections-list"></div>
+  </div>
+</div>
+
+<!-- ═══ LOADING OVERLAY ═══ -->
+<div id="loading-overlay">
+  <div class="login-logo-mark" style="width:56px;height:56px;font-size:24px">O</div>
+  <div class="spinner"></div>
+  <div class="loading-title">Analysing your photo…</div>
+  <div class="loading-sub">This takes a few seconds</div>
+</div>
+
+<!-- ═══ DENTIST MODAL ═══ -->
+<div id="dentist-modal" class="modal-overlay" onclick="closeDentistModal(event)">
+  <div class="modal-sheet">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title">Find a dentist near you</div>
+        <div class="modal-subtitle">Based on your location</div>
+      </div>
+      <button class="modal-close" onclick="closeDentistModal()">×</button>
+    </div>
+    <div class="dentist-list">
+      <div class="dentist-row">
+        <div class="dentist-info">
+          <strong>Dr. Martin</strong>
+          <div class="dentist-meta">0.3 km</div>
+          <div class="dentist-status available">Accepting new patients</div>
+        </div>
+        <button class="book-btn" onclick="showToast('Coming soon')">Book</button>
+      </div>
+      <div class="dentist-row">
+        <div class="dentist-info">
+          <strong>Dr. Lefevre</strong>
+          <div class="dentist-meta">1.1 km</div>
+          <div class="dentist-status available">Accepting new patients</div>
+        </div>
+        <button class="book-btn" onclick="showToast('Coming soon')">Book</button>
+      </div>
+      <div class="dentist-row">
+        <div class="dentist-info">
+          <strong>Dr. Benali</strong>
+          <div class="dentist-meta">2.4 km</div>
+          <div class="dentist-status limited">Limited availability</div>
+        </div>
+        <button class="book-btn" onclick="showToast('Coming soon')">Book</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ TOAST ═══ -->
+<div id="toast"></div>
+
+<!-- ═══ CHATBOT BADGE ═══ -->
+<div id="chatbot-badge">
+  <div class="chat-label">OralSkop AI · Ask about your scan</div>
+  <button class="chat-bubble-btn" onclick="openChatbot()">
+    <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+    <div class="chat-notif-dot" id="chat-notif-dot"></div>
+  </button>
+</div>
+
+<!-- ═══ CHATBOT PANEL ═══ -->
+<div id="chatbot-panel">
+  <div class="chat-panel-header">
+    <div class="chat-panel-title">
+      <div class="chat-panel-logo">O</div>
+      <div>
+        <div class="chat-panel-name">OralSkop Assistant</div>
+        <div class="chat-panel-sub">● Online · Ask about your scan</div>
+      </div>
+    </div>
+    <button class="chat-close-btn" onclick="closeChatbot()">×</button>
+  </div>
+  <div class="chat-messages" id="chat-messages">
+  </div>
+  <div class="chat-typing" id="chat-typing">Thinking…</div>
+  <div class="chat-input-row">
+    <input class="chat-input" id="chat-input" type="text" placeholder="Ask about your scan…"
+      onkeydown="if(event.key==='Enter') sendChat()" />
+    <button class="chat-send-btn" onclick="sendChat()">
+      <svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+    </button>
+  </div>
+</div>
+
+<script>
+// ── Config ──────────────────────────────────────────────────────────────────
+const SUPABASE_URL  = 'https://ajqescdkdpbgtwbgejrw.supabase.co'
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFqcWVzY2RrZHBiZ3R3YmdlanJ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA2ODAyMjEsImV4cCI6MjA5NjI1NjIyMX0.Avowoy2T_AM4XY0DPgkAw95AvAwysn9d_QumrvVlZkU'
+
+// !! Update this when you start ngrok — or set to http://localhost:8000 for local dev
+const BASE_URL = 'http://localhost:8000'
+const CHATBOT_URL = `${BASE_URL}/api/chat`
+
+// ── Supabase client ──────────────────────────────────────────────────────────
+const { createClient } = supabase
+const sb = createClient(SUPABASE_URL, SUPABASE_ANON)
+
+// Catch OAuth redirect — only trigger showApp on actual sign-in, not token refresh while tab is visible
+sb.auth.onAuthStateChange((event, session) => {
+  if (session) {
+    localStorage.setItem('oralskop_token', session.access_token)
+    // Don't re-run showApp if the user is already inside the app (avoids re-navigation on tab focus)
+    if (event === 'SIGNED_IN' && document.getElementById('screen-login').classList.contains('active')) {
+      setAvatarInitials(session)
+      showApp()
+    }
+  }
+})
+
+// ── Boot ─────────────────────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', async () => {
+  const { data: { session } } = await sb.auth.getSession()
+  if (session) {
+    localStorage.setItem('oralskop_token', session.access_token)
+    setAvatarInitials(session)
+    showApp()
+  }
+  // else stay on login
+})
+
+function showApp() {
+  document.getElementById('screen-login').classList.remove('active')
+  document.getElementById('bottom-nav').style.display = 'flex'
+  document.querySelectorAll('.avatar-btn').forEach(btn => btn.style.display = 'flex')
+  // Restore last result if present
+  const saved = localStorage.getItem('oralskop_last_result')
+  if (saved) {
+    try { renderResults(JSON.parse(saved)) } catch(e) {}
+  }
+  navigateTo('guide')
+}
+
+// ── Auth ─────────────────────────────────────────────────────────────────────
+async function loginWithGoogle() {
+  await sb.auth.signInWithOAuth({ provider: 'google' })
+}
+
+async function loginWithEmail() {
+  const email    = document.getElementById('email-input').value.trim()
+  const password = document.getElementById('password-input').value
+  if (!email || !password) { showToast('Enter email and password'); return }
+
+  const { data, error } = await sb.auth.signInWithPassword({ email, password })
+  if (error) { showToast(error.message); return }
+  localStorage.setItem('oralskop_token', data.session.access_token)
+  showApp()
+}
+
+async function registerWithEmail() {
+  const email    = document.getElementById('email-input').value.trim()
+  const password = document.getElementById('password-input').value
+  if (!email || !password) { showToast('Enter email and password'); return }
+
+  // Call our backend register (uses admin.create_user — bypasses email rate limit)
+  const res = await fetch(`${BASE_URL}/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password })
+  })
+  if (!res.ok) { showToast('Registration failed'); return }
+  // After register, log in
+  await loginWithEmail()
+}
+
+// ── Navigation ───────────────────────────────────────────────────────────────
+function navigateTo(screen) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'))
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'))
+
+  document.getElementById(`screen-${screen}`).classList.add('active')
+  const tab = document.getElementById(`tab-${screen}`)
+  if (tab) tab.classList.add('active')
+}
+
+function setRole(role) {
+  if (role === 'dentist') {
+    window.location.href = 'dentist.html'
+  }
+}
+
+// ── Camera + upload ───────────────────────────────────────────────────────────
+function triggerCamera() {
+  document.getElementById('camera-input').click()
+}
+
+async function handlePhoto(event) {
+  const file = event.target.files[0]
+  if (!file) return
+
+  const token = localStorage.getItem('oralskop_token')
+  if (!token) { showToast('Not logged in'); return }
+
+  // Show loading
+  document.getElementById('loading-overlay').classList.add('visible')
+
+  try {
+    const formData = new FormData()
+    formData.append('photo', file)
+
+    const res = await fetch(`${BASE_URL}/api/screenings`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` },
+      body: formData
+    })
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.detail || `HTTP ${res.status}`)
+    }
+
+    const data = await res.json()
+    localStorage.setItem('oralskop_last_result', JSON.stringify(data))
+    renderResults(data)
+    showChatbotBadge(data)
+    navigateTo('patient')
+
+  } catch (e) {
+    showToast(`Error: ${e.message}`)
+  } finally {
+    document.getElementById('loading-overlay').classList.remove('visible')
+    // Reset input so same file can be reselected
+    event.target.value = ''
+  }
+}
+
+// ── Render results ────────────────────────────────────────────────────────────
+const CONDITION_LABELS = {
+  cavity:             'Cavity',
+  caries:             'Caries',
+  abrasion:           'Abrasion',
+  gingivitis:         'Localised gingivitis',
+  tartar:             'Tartar build-up',
+  lesion_suspicious:  'Area to monitor',
+  crown:              'Crown detected',
+}
+
+const SEVERITY_LABELS = {
+  low:      'Mild',
+  moderate: 'Moderate severity',
+  high:     'High severity',
+}
+
+function renderResults(data) {
+  const detections = data.detections || []
+
+  // Subtitle
+  const subtitle = document.getElementById('subtitle-detections')
+  if (detections.length === 0) {
+    subtitle.textContent = 'All clear — keep monitoring'
+    subtitle.style.color = 'var(--teal)'
+  } else {
+    subtitle.textContent = `${detections.length} area${detections.length > 1 ? 's' : ''} to monitor detected`
+    subtitle.style.color = ''
+  }
+
+  // Masked image — show badge only after image has finished loading
+  if (data.masked_image_url) {
+    const imgWrap = document.getElementById('masked-image-wrap')
+    const imgEl   = document.getElementById('masked-image')
+    imgEl.onload  = () => { imgWrap.style.display = 'block' }
+    imgEl.onerror = () => { imgWrap.style.display = 'none' }
+    imgEl.src     = data.masked_image_url
+  }
+
+  // Arcade — highlight tooth if tooth_number present
+  clearArcadeHighlights()
+  detections.forEach(d => {
+    if (d.tooth_number != null) {
+      const el = document.getElementById(`tooth-${d.tooth_number}`)
+      if (el) el.setAttribute('fill', '#D85A30')
+    }
+  })
+
+  // Detection cards — group by condition+severity, show count
+  const grouped = {}
+  detections.forEach(d => {
+    const key = `${d.condition}|${d.severity}`
+    if (!grouped[key]) grouped[key] = { ...d, count: 0 }
+    grouped[key].count++
+  })
+
+  const list = document.getElementById('detections-list')
+  list.innerHTML = ''
+  Object.values(grouped).forEach(d => {
+    const card = document.createElement('div')
+    card.className = 'detection-card' + (d.condition === 'lesion_suspicious' ? ' escalation' : '')
+    const label = CONDITION_LABELS[d.condition] || d.condition
+    const sevLabel = SEVERITY_LABELS[d.severity] || d.severity
+    const countBadge = d.count > 1 ? `<span style="background:var(--line);border-radius:100px;padding:1px 7px;font-size:11px;font-weight:700;color:var(--charcoal);margin-left:6px">&times;${d.count}</span>` : ''
+    card.innerHTML = `
+      <div class="detection-card-top">
+        <div class="detection-condition">${label}${countBadge}</div>
+      </div>
+      <div class="detection-severity">
+        <div class="severity-dot"></div>
+        ${sevLabel}
+        <span style="color:var(--gray);font-weight:400;font-size:12px">(${Math.round(d.confidence * 100)}%)</span>
+      </div>
+    `
+    list.appendChild(card)
+  })
+
+  // Show findings handle with count
+  const handleEl = document.getElementById('findings-handle')
+  const countEl  = document.getElementById('findings-count')
+  const uniqueCount = Object.keys(grouped).length
+  if (uniqueCount > 0) {
+    countEl.textContent = uniqueCount
+    handleEl.classList.add('visible')
+  } else {
+    handleEl.classList.remove('visible')
+  }
+}
+
+function openFindings() {
+  document.getElementById('findings-drawer').classList.add('open')
+  document.getElementById('findings-overlay').classList.add('visible')
+}
+
+function closeFindings() {
+  document.getElementById('findings-drawer').classList.remove('open')
+  document.getElementById('findings-overlay').classList.remove('visible')
+}
+
+function clearArcadeHighlights() {
+  document.querySelectorAll('#arcade-svg rect').forEach(el => {
+    el.setAttribute('fill', 'white')
+  })
+}
+
+// ── Dentist modal ─────────────────────────────────────────────────────────────
+function showDentistModal() {
+  document.getElementById('dentist-modal').classList.add('visible')
+}
+
+function closeDentistModal(e) {
+  if (!e || e.target === document.getElementById('dentist-modal') || e.currentTarget === document.querySelector('.modal-close')) {
+    document.getElementById('dentist-modal').classList.remove('visible')
+  }
+}
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+let toastTimer
+function showToast(msg) {
+  const t = document.getElementById('toast')
+  t.textContent = msg
+  t.style.display = 'block'
+  clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => { t.style.display = 'none' }, 3000)
+}
+
+// ── Chatbot ───────────────────────────────────────────────────────────────────
+let chatSegmentation = null
+let chatMessages     = []
+let chatReady        = false
+
+function showChatbotBadge(screeningData) {
+  // Build segmentation context from screening response for the chatbot
+  chatSegmentation = {
+    detections: (screeningData.detections || []).map(d => ({
+      class_name:  d.condition,
+      confidence:  d.confidence,
+      severity:    d.severity,
+      bbox:        d.box_coordinates || [],
+    }))
+  }
+  chatMessages = []
+  chatReady    = true
+  document.getElementById('chatbot-badge').classList.add('visible')
+}
+
+function openChatbot() {
+  document.getElementById('chat-notif-dot').style.display = 'none'
+  document.getElementById('chatbot-panel').classList.add('visible')
+  document.getElementById('chat-input').focus()
+  // Auto-send a summary on first open
+  if (chatReady && chatMessages.length === 0) {
+    autoSummarise()
+  }
+}
+
+async function autoSummarise() {
+  const AUTO_MSG = 'Summarise what you found in my scan in 2-3 sentences.'
+  chatMessages.push({ role: 'user', content: AUTO_MSG })
+
+  const typing = document.getElementById('chat-typing')
+  typing.classList.add('visible')
+
+  try {
+    const res = await fetch(CHATBOT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('oralskop_token')}` },
+      body: JSON.stringify({ messages: chatMessages, segmentation: chatSegmentation })
+    })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const data = await res.json()
+    const reply = data.reply || data.message || JSON.stringify(data)
+    chatMessages.push({ role: 'assistant', content: reply })
+    appendChatMsg('assistant', reply)
+  } catch (e) {
+    appendChatMsg('assistant', `Couldn't load scan summary. (${e.message})`)
+  } finally {
+    typing.classList.remove('visible')
+  }
+}
+
+function closeChatbot() {
+  document.getElementById('chatbot-panel').classList.remove('visible')
+}
+
+async function sendChat() {
+  if (!chatReady) { showToast('Take a photo first'); return }
+  const input = document.getElementById('chat-input')
+  const text  = input.value.trim()
+  if (!text) return
+
+  input.value = ''
+  appendChatMsg('user', text)
+  chatMessages.push({ role: 'user', content: text })
+
+  const typing = document.getElementById('chat-typing')
+  typing.classList.add('visible')
+
+  try {
+    const res = await fetch(CHATBOT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('oralskop_token')}` },
+      body: JSON.stringify({ messages: chatMessages, segmentation: chatSegmentation })
+    })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const data = await res.json()
+    const reply = data.reply || data.message || JSON.stringify(data)
+    chatMessages.push({ role: 'assistant', content: reply })
+    appendChatMsg('assistant', reply)
+  } catch (e) {
+    appendChatMsg('assistant', `Sorry, I couldn't reach the AI assistant. (${e.message})`)
+  } finally {
+    typing.classList.remove('visible')
+  }
+}
+
+function appendChatMsg(role, text) {
+  const container = document.getElementById('chat-messages')
+  const msg = document.createElement('div')
+  msg.className = `chat-msg ${role}`
+  if (role === 'assistant') {
+    msg.innerHTML = marked.parse(text)
+  } else {
+    msg.textContent = text
+  }
+  container.appendChild(msg)
+  container.scrollTop = container.scrollHeight
+}
+
+// ── Avatar menu ───────────────────────────────────────────────────────────────
+function setAvatarInitials(session) {
+  const email = session?.user?.email || ''
+  const meta  = session?.user?.user_metadata || {}
+  const name  = meta.full_name || meta.name || email.split('@')[0] || '?'
+  const initials = name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase() || '?'
+
+  document.getElementById('avatar-name').textContent  = name
+  document.getElementById('avatar-email').textContent = email
+  document.querySelectorAll('.avatar-btn').forEach(btn => { btn.textContent = initials })
+  loadProfile()
+}
+
+function saveProfile() {
+  const p = {
+    age:      document.getElementById('profile-age').value,
+    sex:      document.getElementById('profile-sex').value,
+    smoker:   document.getElementById('profile-smoker').checked,
+    diabetic: document.getElementById('profile-diabetic').checked,
+  }
+  localStorage.setItem('oralskop_profile', JSON.stringify(p))
+}
+
+function loadProfile() {
+  const raw = localStorage.getItem('oralskop_profile')
+  if (!raw) return
+  try {
+    const p = JSON.parse(raw)
+    if (p.age)      document.getElementById('profile-age').value       = p.age
+    if (p.sex)      document.getElementById('profile-sex').value       = p.sex
+    if (p.smoker)   document.getElementById('profile-smoker').checked  = true
+    if (p.diabetic) document.getElementById('profile-diabetic').checked = true
+  } catch(e) {}
+}
+
+function toggleAvatarMenu() {
+  document.getElementById('avatar-dropdown').classList.toggle('open')
+}
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('.avatar-btn') && !e.target.closest('#avatar-dropdown')) {
+    document.getElementById('avatar-dropdown').classList.remove('open')
+  }
+})
+
+async function logOut() {
+  await sb.auth.signOut()
+  localStorage.removeItem('oralskop_token')
+  localStorage.removeItem('oralskop_last_result')
+  localStorage.removeItem('oralskop_profile')
+  location.reload()
+}
+</script>
+</body>
+</html>

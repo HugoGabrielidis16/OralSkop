@@ -19,7 +19,7 @@ def upload_bytes(bucket: str, key: str, data: bytes, content_type: str = "applic
     client.put_object(Bucket=bucket, Key=key, Body=data, ContentType=content_type)
 
 
-def get_presigned_url(bucket: str, key: str, expires_in: int = 3600) -> str:
+def get_presigned_url(bucket: str, key: str, expires_in: int = 7200) -> str:
     client = _get_client()
     return client.generate_presigned_url(
         "get_object",

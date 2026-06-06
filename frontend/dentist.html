@@ -1,0 +1,1098 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OralSkop — Dentist workspace</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    :root {
+      --teal:       #0F6E56;
+      --teal-deep:  #0A4D3C;
+      --teal-light: #5EC9A8;
+      --coral:      #D85A30;
+      --coral-tint: #FDEDE6;
+      --cream:      #FAF9F6;
+      --charcoal:   #1F2937;
+      --gray:       #6B7280;
+      --line:       #E5E7EB;
+      --white:      #FFFFFF;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--cream);
+      color: var(--charcoal);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Top nav ── */
+    .topnav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 32px;
+      height: 60px;
+      background: var(--white);
+      border-bottom: 1px solid var(--line);
+      position: sticky;
+      top: 0;
+      z-index: 20;
+    }
+
+    .nav-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .logo-mark {
+      width: 32px; height: 32px;
+      background: var(--teal);
+      border-radius: 50%;
+      color: var(--white);
+      font-weight: 800;
+      font-size: 14px;
+      display: flex; align-items: center; justify-content: center;
+    }
+
+    .logo-text { font-weight: 800; font-size: 16px; }
+    .logo-sub  { color: var(--gray); font-size: 14px; font-weight: 400; }
+
+    .role-toggle {
+      display: flex;
+      background: var(--line);
+      border-radius: 100px;
+      padding: 3px;
+      gap: 2px;
+    }
+
+    .role-toggle button {
+      border: none;
+      background: transparent;
+      padding: 6px 16px;
+      border-radius: 100px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      color: var(--gray);
+      transition: all 0.15s;
+    }
+
+    .role-toggle button.active { background: var(--teal); color: var(--white); }
+
+    .nav-right { color: var(--gray); font-size: 13px; }
+
+    /* ── Main layout ── */
+    .workspace {
+      display: grid;
+      grid-template-columns: 220px 1fr 260px;
+      flex: 1;
+      min-height: 0;
+      height: calc(100vh - 60px - 44px);
+      overflow: hidden;
+    }
+
+    /* ── Column shared ── */
+    .col {
+      border-right: 1px solid var(--line);
+      overflow-y: auto;
+      padding: 24px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .col:last-child { border-right: none; }
+
+    .col-header {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .col-title { font-size: 14px; font-weight: 700; }
+    .col-meta  { font-size: 12px; color: var(--teal); font-weight: 600; }
+
+    /* ── Left col ── */
+    .sector-list { display: flex; flex-direction: column; gap: 10px; }
+
+    .sector-card {
+      background: var(--charcoal);
+      border-radius: 10px;
+      padding: 12px;
+      cursor: pointer;
+      border: 2px solid transparent;
+      transition: border-color 0.15s;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .sector-card.selected { border-color: var(--teal); }
+    .sector-card:hover    { border-color: var(--teal-light); }
+
+    /* ── Sector card thumbnail ── */
+    .sector-thumb {
+      width: 52px; height: 40px;
+      border-radius: 6px;
+      overflow: hidden;
+      background: #374151;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .sector-thumb img {
+      width: 100%; height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .sector-thumb-placeholder {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+      width: 100%; height: 100%;
+    }
+
+    .sector-tooth {
+      width: 8px; height: 14px;
+      background: var(--white);
+      border-radius: 2px;
+      opacity: 0.85;
+    }
+
+    .sector-info { flex: 1; }
+    .sector-name { color: var(--white); font-size: 13px; font-weight: 600; }
+
+    .sector-badge {
+      font-size: 11px;
+      font-weight: 600;
+      margin-top: 3px;
+    }
+
+    .sector-badge.detection { color: var(--coral); }
+    .sector-badge.clear     { color: var(--gray);  }
+
+    /* ── Center col ── */
+    .center-col {
+      padding: 24px 28px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .center-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .center-title { font-size: 18px; font-weight: 800; }
+
+    .view-toggle {
+      display: flex;
+      border: 1px solid var(--line);
+      border-radius: 100px;
+      overflow: hidden;
+    }
+
+    .view-toggle button {
+      padding: 6px 18px;
+      border: none;
+      background: var(--white);
+      color: var(--charcoal);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .view-toggle button.active { background: var(--teal); color: var(--white); }
+
+    .image-panels {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .image-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .image-panel-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--gray);
+    }
+
+    .image-panel-label.analysis { color: var(--teal); }
+
+    .image-panel-frame {
+      background: #F3F4F6;
+      border-radius: 8px;
+      overflow: hidden;
+      aspect-ratio: 4/3;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+
+    .image-panel-frame img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .image-placeholder {
+      color: var(--gray);
+      font-size: 13px;
+      text-align: center;
+      padding: 16px;
+    }
+
+    .image-caption {
+      font-size: 12px;
+      color: var(--gray);
+      line-height: 1.5;
+    }
+
+    /* ── Timeline ── */
+    .timeline-section {
+      margin-top: 20px;
+      background: var(--white);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 16px 20px 12px;
+    }
+
+    .timeline-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--gray);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 14px;
+    }
+
+    .timeline-scroll {
+      overflow-x: auto;
+      padding-bottom: 4px;
+    }
+
+    .timeline-svg { display: block; }
+
+    .tl-month-label {
+      font-size: 10px;
+      fill: var(--gray);
+      font-family: 'Inter', sans-serif;
+    }
+
+    .tl-condition-label {
+      font-size: 10px;
+      fill: var(--charcoal);
+      font-family: 'Inter', sans-serif;
+      dominant-baseline: middle;
+    }
+
+    .tl-session-dot {
+      cursor: pointer;
+      transition: r 0.15s;
+    }
+
+    .tl-session-dot:hover { r: 7; }
+
+    /* ── Right col ── */
+    .priority-badge {
+      padding: 8px 14px;
+      border-radius: 100px;
+      font-size: 13px;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .priority-badge.high     { background: var(--coral-tint); color: var(--coral); }
+    .priority-badge.standard { background: #EAF4F1; color: var(--teal); }
+
+    .priority-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    .section-label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--gray);
+      margin-bottom: 6px;
+    }
+
+    .profile-name { font-size: 15px; font-weight: 700; }
+    .profile-meta { font-size: 13px; color: var(--gray); margin-top: 2px; }
+
+    .detections-list { display: flex; flex-direction: column; gap: 8px; }
+
+    .detection-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 13px;
+    }
+
+    .detection-name {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+    }
+
+    .det-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .det-dot.alert   { background: var(--coral); }
+    .det-dot.normal  { background: var(--charcoal); }
+
+    .detection-score { color: var(--gray); font-size: 12px; }
+
+    .det-footer { font-size: 11px; color: var(--gray); line-height: 1.5; }
+
+    .action-btns { display: flex; flex-direction: column; gap: 10px; margin-top: auto; }
+
+    .btn-primary {
+      width: 100%;
+      padding: 13px;
+      background: var(--teal);
+      color: var(--white);
+      border: none;
+      border-radius: 100px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .btn-primary:hover { background: var(--teal-deep); }
+
+    .btn-secondary {
+      width: 100%;
+      padding: 11px;
+      background: transparent;
+      color: var(--teal);
+      border: 2px solid var(--teal);
+      border-radius: 100px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    /* ── Footer ── */
+    .workspace-footer {
+      background: var(--charcoal);
+      padding: 12px 32px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .footer-logo-mark {
+      width: 24px; height: 24px;
+      background: var(--white);
+      border-radius: 50%;
+      color: var(--teal);
+      font-weight: 800;
+      font-size: 11px;
+      display: flex; align-items: center; justify-content: center;
+    }
+
+    .footer-text { color: var(--gray); font-size: 12px; }
+
+    /* ── Loading / empty states ── */
+    .loading-panel {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      flex: 1;
+      min-height: 200px;
+    }
+
+    .spinner {
+      width: 36px; height: 36px;
+      border: 3px solid var(--line);
+      border-top-color: var(--teal);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .empty-text { color: var(--gray); font-size: 14px; text-align: center; }
+
+    /* ── Toast ── */
+    #toast {
+      display: none;
+      position: fixed;
+      bottom: 60px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--charcoal);
+      color: var(--white);
+      padding: 10px 20px;
+      border-radius: 100px;
+      font-size: 13px;
+      font-weight: 600;
+      z-index: 200;
+      white-space: nowrap;
+    }
+
+    /* ═══════════════════════════════════════════════════
+       MOBILE — read-only triage view (< 768px)
+       Single column: case list → tap → case detail sheet
+    ═══════════════════════════════════════════════════ */
+    @media (max-width: 767px) {
+
+      /* Nav: hide logo-sub and queue count, tighten padding */
+      .topnav { padding: 0 16px; height: 52px; }
+      .logo-sub { display: none; }
+      .nav-right { display: none; }
+      .role-toggle button { padding: 5px 12px; font-size: 12px; }
+
+      /* Workspace stacks vertically, overflow visible */
+      .workspace {
+        grid-template-columns: 1fr;
+        height: auto;
+        overflow: visible;
+      }
+
+      /* Left col = full-width case list, no fixed height */
+      #left-col {
+        border-right: none;
+        border-bottom: 1px solid var(--line);
+        overflow-y: visible;
+        padding: 16px;
+      }
+
+      /* Center + right cols hidden by default on mobile —
+         shown as a slide-up detail sheet when a case is selected */
+      #center-col,
+      #right-col {
+        display: none;
+        border-right: none;
+        padding: 16px;
+      }
+
+      #center-col.mobile-visible,
+      #right-col.mobile-visible {
+        display: flex;
+      }
+
+      /* Right col on mobile: no margin-top:auto on action-btns */
+      #right-col .action-btns { margin-top: 8px; }
+
+      /* Image panels stack vertically on mobile */
+      .image-panels { grid-template-columns: 1fr; }
+
+      /* Detail sheet header — back button */
+      .mobile-back {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--teal);
+        cursor: pointer;
+        padding-bottom: 12px;
+        border-bottom: 1px solid var(--line);
+        margin-bottom: 4px;
+        background: none;
+        border-top: none;
+        border-left: none;
+        border-right: none;
+        width: 100%;
+        text-align: left;
+      }
+
+      /* Hide action buttons on mobile triage — read-only */
+      .action-btns { display: none; }
+
+      /* Footer: shorter on mobile */
+      .workspace-footer { padding: 10px 16px; }
+    }
+
+    /* Desktop only — hide mobile-back button */
+    @media (min-width: 768px) {
+      .mobile-back { display: none; }
+    }
+
+    /* ── Login overlay ── */
+    #login-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: var(--cream);
+      z-index: 100;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+      padding: 40px;
+    }
+
+    #login-overlay.visible { display: flex; }
+
+    .login-logo-mark {
+      width: 64px; height: 64px;
+      background: var(--teal);
+      border-radius: 50%;
+      color: var(--white);
+      font-weight: 800;
+      font-size: 28px;
+      display: flex; align-items: center; justify-content: center;
+    }
+
+    .login-title    { font-size: 24px; font-weight: 800; }
+    .login-subtitle { color: var(--gray); font-size: 14px; }
+
+    .google-btn {
+      padding: 13px 28px;
+      background: var(--white);
+      color: var(--charcoal);
+      border: 1px solid var(--line);
+      border-radius: 100px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .divider {
+      width: 320px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      color: var(--gray);
+      font-size: 13px;
+    }
+
+    .divider::before, .divider::after {
+      content: ''; flex: 1; height: 1px; background: var(--line);
+    }
+
+    .email-form {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      width: 320px;
+    }
+
+    .email-form input {
+      padding: 13px 16px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      font-size: 14px;
+      font-family: inherit;
+      outline: none;
+    }
+
+    .divider-section {
+      width: 320px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ═══ LOGIN OVERLAY ═══ -->
+<div id="login-overlay" class="visible">
+  <div class="login-logo-mark">O</div>
+  <div class="login-title">OralSkop</div>
+  <div class="login-subtitle">Dentist workspace — sign in to continue</div>
+
+  <button class="google-btn" onclick="loginWithGoogle()">
+    <svg width="20" height="20" viewBox="0 0 24 24">
+      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/>
+      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+    </svg>
+    Continue with Google
+  </button>
+
+  <div class="divider">or</div>
+
+  <div class="divider-section">
+    <input id="email-input" type="email" placeholder="Email" />
+    <input id="password-input" type="password" placeholder="Password" />
+    <button class="btn-primary" onclick="loginWithEmail()">Sign in</button>
+  </div>
+</div>
+
+<!-- ═══ TOP NAV ═══ -->
+<nav class="topnav">
+  <div class="nav-left">
+    <div class="logo-mark">O</div>
+    <span class="logo-text">OralSkop</span>
+    <span class="logo-sub">· Dentist workspace</span>
+  </div>
+  <div class="role-toggle">
+    <button onclick="goPatient()">Patient view</button>
+    <button class="active">Dentist view</button>
+  </div>
+  <div class="nav-right" id="nav-right">Dr. — · queue: — cases</div>
+</nav>
+
+<!-- ═══ WORKSPACE ═══ -->
+<div class="workspace">
+
+  <!-- LEFT — patient photos sidebar -->
+  <div class="col" id="left-col">
+    <div class="col-header">
+      <div class="col-title">Patient photos</div>
+      <div class="col-meta" id="coverage-meta">Loading…</div>
+    </div>
+    <div class="sector-list" id="sector-list">
+      <div class="loading-panel"><div class="spinner"></div></div>
+    </div>
+  </div>
+
+  <!-- CENTER — comparison panel -->
+  <div class="center-col" id="center-col">
+    <button class="mobile-back" onclick="mobileBack()">&#8592; All cases</button>
+    <div class="center-header">
+      <div class="center-title" id="center-title">Select a case</div>
+      <div class="view-toggle">
+        <button class="active" id="btn-seg" onclick="setView('seg')">Segmentation</button>
+        <button id="btn-heat" onclick="setView('heat')">Heatmap</button>
+      </div>
+    </div>
+
+    <div class="image-panels" id="image-panels">
+      <div class="image-panel">
+        <div class="image-panel-label">Original</div>
+        <div class="image-panel-frame" id="frame-original">
+          <div class="image-placeholder">Select a case from the left panel</div>
+        </div>
+      </div>
+      <div class="image-panel">
+        <div class="image-panel-label analysis">Analysis — segmentation</div>
+        <div class="image-panel-frame" id="frame-analysis">
+          <div class="image-placeholder">—</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="image-caption" style="display:none">
+      Highlighted zones = model attention (Grad-CAM). The full photo remains visible: you have the final say.
+    </div>
+
+    <!-- Patient condition timeline -->
+    <div class="timeline-section">
+      <div class="timeline-title">Condition history · all sessions</div>
+      <div class="timeline-scroll">
+        <svg class="timeline-svg" id="timeline-svg" height="20"><text class="tl-month-label" x="8" y="14">Load a case to see timeline</text></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT — case panel -->
+  <div class="col" id="right-col">
+
+    <div id="priority-wrap">
+      <span class="priority-badge standard" id="priority-badge">
+        <span class="priority-dot"></span>
+        Standard
+      </span>
+    </div>
+
+    <div>
+      <div class="section-label">Profile</div>
+      <div class="profile-name" id="case-id">Case #— · — yrs · —</div>
+      <div class="profile-meta" id="case-meta">—</div>
+    </div>
+
+    <div>
+      <div class="section-label">Detections</div>
+      <div class="detections-list" id="detections-list">
+        <div class="empty-text">No case selected</div>
+      </div>
+      <div class="det-footer" style="margin-top:8px">Calibrated scores · Grad-CAM interpretability.</div>
+    </div>
+
+    <div class="action-btns">
+      <button class="btn-primary"    onclick="showToast('✓ Response sent to patient')">Validate &amp; reply to patient</button>
+      <button class="btn-secondary"  onclick="showToast('Request sent')">Request more photos</button>
+    </div>
+
+  </div>
+</div>
+
+<!-- ═══ FOOTER ═══ -->
+<div class="workspace-footer">
+  <div class="footer-logo-mark">O</div>
+  <div class="footer-text">OralSkop · Secure dentist workspace · HDS-hosted health data</div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ── Config ────────────────────────────────────────────────────────────────────
+const SUPABASE_URL  = 'https://ajqescdkdpbgtwbgejrw.supabase.co'
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFqcWVzY2RrZHBiZ3R3YmdlanJ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA2ODAyMjEsImV4cCI6MjA5NjI1NjIyMX0.Avowoy2T_AM4XY0DPgkAw95AvAwysn9d_QumrvVlZkU'
+const BASE_URL = 'http://localhost:8000'
+
+const CONDITION_LABELS = {
+  cavity:            'Cavity',
+  caries:            'Caries',
+  abrasion:          'Abrasion',
+  gingivitis:        'Localised gingivitis',
+  tartar:            'Tartar build-up',
+  lesion_suspicious: 'Area to monitor',
+  crown:             'Crown',
+}
+
+// ── Supabase ──────────────────────────────────────────────────────────────────
+const { createClient } = supabase
+const sb = createClient(SUPABASE_URL, SUPABASE_ANON)
+
+let currentScreenings = []
+let selectedIndex     = null
+
+sb.auth.onAuthStateChange((event, session) => {
+  if (session) {
+    localStorage.setItem('oralskop_token', session.access_token)
+    hideLogin()
+    loadHistory()
+  }
+})
+
+window.addEventListener('DOMContentLoaded', async () => {
+  const { data: { session } } = await sb.auth.getSession()
+  if (session) {
+    localStorage.setItem('oralskop_token', session.access_token)
+    hideLogin()
+    loadHistory()
+  }
+})
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+function hideLogin() {
+  document.getElementById('login-overlay').classList.remove('visible')
+}
+
+async function loginWithGoogle() {
+  await sb.auth.signInWithOAuth({ provider: 'google' })
+}
+
+async function loginWithEmail() {
+  const email    = document.getElementById('email-input').value.trim()
+  const password = document.getElementById('password-input').value
+  if (!email || !password) { showToast('Enter email and password'); return }
+  const { data, error } = await sb.auth.signInWithPassword({ email, password })
+  if (error) { showToast(error.message); return }
+  localStorage.setItem('oralskop_token', data.session.access_token)
+  hideLogin()
+  loadHistory()
+}
+
+// ── Load history ──────────────────────────────────────────────────────────────
+async function loadHistory() {
+  const token = localStorage.getItem('oralskop_token')
+  if (!token) return
+
+  try {
+    const res = await fetch(`${BASE_URL}/api/history?limit=5`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const screenings = await res.json()
+    currentScreenings = screenings
+    renderSidebar(screenings)
+    if (screenings.length > 0) selectCase(0)
+    renderTimeline(screenings, 0)
+  } catch (e) {
+    document.getElementById('sector-list').innerHTML =
+      `<div class="empty-text">Could not load cases.<br>${e.message}</div>`
+  }
+}
+
+// ── Sidebar ───────────────────────────────────────────────────────────────────
+function renderSidebar(screenings) {
+  const list = document.getElementById('sector-list')
+  const coverage = document.getElementById('coverage-meta')
+  const navRight = document.getElementById('nav-right')
+
+  const count = screenings.length
+  navRight.textContent = `Dr. — · queue: ${count} case${count !== 1 ? 's' : ''}`
+
+  if (count === 0) {
+    coverage.textContent = 'No cases yet'
+    list.innerHTML = '<div class="empty-text">No screenings found.<br>Take a photo from the patient app.</div>'
+    return
+  }
+
+  coverage.textContent = `${count} screening${count !== 1 ? 's' : ''} · latest first`
+
+  list.innerHTML = ''
+  screenings.forEach((s, i) => {
+    const hasDetections = s.condition_summary && s.condition_summary.length > 0
+    const date = new Date(s.captured_at).toLocaleDateString('en-GB', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })
+
+    const thumbHTML = (s.masked_image_url || s.photo_url)
+      ? `<img src="${s.masked_image_url || s.photo_url}" alt="case" loading="lazy" />`
+      : `<div class="sector-thumb-placeholder">
+           <div class="sector-tooth"></div>
+           <div class="sector-tooth"></div>
+           <div class="sector-tooth"></div>
+           <div class="sector-tooth"></div>
+         </div>`
+
+    const card = document.createElement('div')
+    card.className = 'sector-card' + (i === 0 ? ' selected' : '')
+    card.id = `sector-card-${i}`
+    card.onclick = () => selectCase(i)
+    card.innerHTML = `
+      <div class="sector-thumb">${thumbHTML}</div>
+      <div class="sector-info">
+        <div class="sector-name">Case #${i + 1}</div>
+        <div style="color:var(--gray);font-size:11px;margin-top:2px">${date}</div>
+        <div class="sector-badge ${hasDetections ? 'detection' : 'clear'}">
+          ${hasDetections ? '● ' + s.condition_summary.slice(0, 2).join(', ') : 'clear'}
+        </div>
+      </div>
+    `
+    list.appendChild(card)
+  })
+}
+
+// ── Mobile navigation ───────────────────────────────────────────────────────
+function isMobile() { return window.innerWidth < 768 }
+
+function mobileBack() {
+  document.getElementById('center-col').classList.remove('mobile-visible')
+  document.getElementById('right-col').classList.remove('mobile-visible')
+}
+
+function mobileShowDetail() {
+  if (!isMobile()) return
+  document.getElementById('center-col').classList.add('mobile-visible')
+  document.getElementById('right-col').classList.add('mobile-visible')
+  // Scroll to detail
+  document.getElementById('center-col').scrollIntoView({ behavior: 'smooth' })
+}
+
+// ── Select case ───────────────────────────────────────────────────────────────
+async function selectCase(index) {
+  selectedIndex = index
+
+  // Update sidebar selection
+  document.querySelectorAll('.sector-card').forEach((c, i) => {
+    c.classList.toggle('selected', i === index)
+  })
+
+  // Re-render timeline to highlight selected column
+  renderTimeline(currentScreenings, index)
+
+  mobileShowDetail()
+
+  const s = currentScreenings[index]
+  if (!s) return
+
+  // Center panel
+  document.getElementById('center-title').textContent = `Case #${index + 1} — comparison`
+
+  const frameOrig     = document.getElementById('frame-original')
+  const frameAnalysis = document.getElementById('frame-analysis')
+
+  // Original photo — history endpoint returns masked_image_url
+  // For original we show masked too (original not in history response at MVP)
+  if (s.photo_url || s.masked_image_url) {
+    const origSrc    = s.photo_url || s.masked_image_url
+    const maskedSrc  = s.masked_image_url || s.photo_url
+    frameOrig.innerHTML     = `<img src="${origSrc}" alt="Original" loading="lazy" onerror="this.parentElement.innerHTML='<div class=image-placeholder>Image unavailable</div>'" />`
+    frameAnalysis.innerHTML = `<img src="${maskedSrc}" alt="Analysis" loading="lazy" onerror="this.parentElement.innerHTML='<div class=image-placeholder>Image unavailable</div>'" />`
+  } else {
+    frameOrig.innerHTML     = '<div class="image-placeholder">Image unavailable</div>'
+    frameAnalysis.innerHTML = '<div class="image-placeholder">Image unavailable</div>'
+  }
+
+  // Right panel — try to fetch full screening detail for detections
+  // History endpoint already includes condition_summary + escalation_triggered
+  const escalation = s.escalation_triggered
+
+  const badge = document.getElementById('priority-badge')
+  if (escalation) {
+    badge.className = 'priority-badge high'
+    badge.innerHTML = '<span class="priority-dot"></span> High priority'
+  } else {
+    badge.className = 'priority-badge standard'
+    badge.innerHTML = '<span class="priority-dot"></span> Standard'
+  }
+
+  document.getElementById('case-id').textContent   = `Case #${index + 1} · —`
+  document.getElementById('case-meta').textContent = 'non-smoker · non-diabetic'
+
+  const detList = document.getElementById('detections-list')
+  const conditions = s.condition_summary || []
+
+  if (conditions.length === 0) {
+    detList.innerHTML = '<div class="empty-text" style="font-size:13px">No detections</div>'
+  } else {
+    detList.innerHTML = conditions.map(c => {
+      const isAlert = c.includes('lesion') || c.includes('suspicious')
+      const label   = CONDITION_LABELS[c] || c
+      return `
+        <div class="detection-row">
+          <div class="detection-name">
+            <div class="det-dot ${isAlert ? 'alert' : 'normal'}"></div>
+            ${label}
+          </div>
+          <div class="detection-score">—</div>
+        </div>
+      `
+    }).join('')
+  }
+}
+
+// ── View toggle (cosmetic at MVP) ─────────────────────────────────────────────
+function setView(mode) {
+  document.getElementById('btn-seg').classList.toggle('active',  mode === 'seg')
+  document.getElementById('btn-heat').classList.toggle('active', mode === 'heat')
+  // Both views show the same image at MVP — the toggle is a demo prop
+}
+
+// ── Patient condition timeline ────────────────────────────────────────────────
+const CONDITION_COLORS = {
+  abrasion:          '#F97316', // orange
+  filling:           '#8B5CF6', // purple
+  crown:             '#3B82F6', // blue
+  caries:            '#EF4444', // red
+  cavity:            '#EF4444',
+  gingivitis:        '#EC4899', // pink
+  tartar:            '#EAB308', // yellow
+  lesion_suspicious: '#991B1B', // dark red
+}
+
+function renderTimeline(screenings, activeIndex) {
+  const svg = document.getElementById('timeline-svg')
+  if (!screenings || screenings.length === 0) {
+    svg.innerHTML = '<text class="tl-month-label" x="8" y="14">No sessions yet</text>'
+    svg.setAttribute('height', '20')
+    return
+  }
+
+  // Collect all unique conditions across all screenings
+  const allConditions = []
+  screenings.forEach(s => {
+    (s.condition_summary || []).forEach(c => {
+      if (!allConditions.includes(c)) allConditions.push(c)
+    })
+  })
+  if (allConditions.length === 0) allConditions.push('—')
+
+  // Layout constants
+  const LABEL_W  = 110  // left label column width
+  const COL_W    = 60   // horizontal space per session
+  const ROW_H    = 26   // vertical space per condition row
+  const TOP_PAD  = 28   // space for month labels at top
+  const DOT_R    = 5
+  const totalW   = LABEL_W + (screenings.length * COL_W) + 20
+  const totalH   = TOP_PAD + (allConditions.length * ROW_H) + 16
+
+  svg.setAttribute('width',  totalW)
+  svg.setAttribute('height', totalH)
+
+  let html = ''
+
+  // Month labels above each session column
+  screenings.forEach((s, i) => {
+    const x = LABEL_W + i * COL_W + COL_W / 2
+    const d = new Date(s.captured_at)
+    const label = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+    // Highlight selected
+    if (i === activeIndex) {
+      html += `<rect x="${x - COL_W/2 + 2}" y="0" width="${COL_W - 4}" height="${totalH}" rx="6" fill="#0F6E5611" />`
+    }
+    html += `<text class="tl-month-label" x="${x}" y="12" text-anchor="middle">${label}</text>`
+  })
+
+  // Horizontal grid lines + condition labels + dots
+  allConditions.forEach((cond, row) => {
+    const y    = TOP_PAD + row * ROW_H + ROW_H / 2
+    const color = CONDITION_COLORS[cond] || '#6B7280'
+    const label = CONDITION_LABELS[cond] || cond
+
+    // Condition label
+    html += `<text class="tl-condition-label" x="${LABEL_W - 8}" y="${y}" text-anchor="end">${label}</text>`
+
+    // Light grid line
+    html += `<line x1="${LABEL_W}" y1="${y}" x2="${totalW - 10}" y2="${y}" stroke="#E5E7EB" stroke-width="1" />`
+
+    // Find sessions where this condition appears — draw connecting line first
+    const sessionXs = screenings
+      .map((s, i) => (s.condition_summary || []).includes(cond) ? LABEL_W + i * COL_W + COL_W / 2 : null)
+      .filter(x => x !== null)
+
+    if (sessionXs.length > 1) {
+      html += `<line x1="${sessionXs[0]}" y1="${y}" x2="${sessionXs[sessionXs.length - 1]}" y2="${y}" stroke="${color}" stroke-width="2" stroke-opacity="0.35" />`
+    }
+
+    // Dots for each session
+    screenings.forEach((s, i) => {
+      const x = LABEL_W + i * COL_W + COL_W / 2
+      const present = (s.condition_summary || []).includes(cond)
+      if (present) {
+        html += `<circle class="tl-session-dot" cx="${x}" cy="${y}" r="${DOT_R}" fill="${color}" stroke="white" stroke-width="2" onclick="selectCase(${i})" />`
+      } else {
+        html += `<circle cx="${x}" cy="${y}" r="2.5" fill="#E5E7EB" />`
+      }
+    })
+  })
+
+  svg.innerHTML = html
+}
+
+// ── Navigation ────────────────────────────────────────────────────────────────
+function goPatient() {
+  window.location.href = 'index.html'
+}
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+let toastTimer
+function showToast(msg) {
+  const t = document.getElementById('toast')
+  t.textContent = msg
+  t.style.display = 'block'
+  clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => { t.style.display = 'none' }, 3000)
+}
+</script>
+</body>
+</html>

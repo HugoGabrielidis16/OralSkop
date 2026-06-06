@@ -1,9 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from routers import auth, screenings, history
+from routers import auth, screenings, history, chat
 
-app = FastAPI(title="OralSkop API", version="1.3")
+app = FastAPI(title="OralSkop API", version="1.4")
 
 app.add_middleware(
     CORSMiddleware,
@@ -16,6 +16,7 @@ app.add_middleware(
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
 app.include_router(screenings.router, prefix="/api", tags=["screenings"])
 app.include_router(history.router, prefix="/api", tags=["history"])
+app.include_router(chat.router, prefix="/api", tags=["chat"])
 
 
 @app.get("/health")
