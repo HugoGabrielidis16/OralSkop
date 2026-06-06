@@ -7,6 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
   <style>
     :root {
       --teal:       #0F6E56;
@@ -766,7 +767,7 @@
 // ── Config ────────────────────────────────────────────────────────────────────
 const SUPABASE_URL  = 'https://ajqescdkdpbgtwbgejrw.supabase.co'
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFqcWVzY2RrZHBiZ3R3YmdlanJ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA2ODAyMjEsImV4cCI6MjA5NjI1NjIyMX0.Avowoy2T_AM4XY0DPgkAw95AvAwysn9d_QumrvVlZkU'
-const BASE_URL = 'http://localhost:8000'
+// BASE_URL loaded from config.js
 
 const CONDITION_LABELS = {
   cavity:            'Cavity',
@@ -829,7 +830,10 @@ async function loadHistory() {
 
   try {
     const res = await fetch(`${BASE_URL}/api/history?limit=5`, {
-      headers: { 'Authorization': `Bearer ${token}` }
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'ngrok-skip-browser-warning': 'true'
+      }
     })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const screenings = await res.json()
@@ -956,8 +960,25 @@ async function selectCase(index) {
     badge.innerHTML = '<span class="priority-dot"></span> Standard'
   }
 
-  document.getElementById('case-id').textContent   = `Case #${index + 1} · —`
-  document.getElementById('case-meta').textContent = 'non-smoker · non-diabetic'
+  document.getElementById('case-id').textContent = `Case #${index + 1} · —`
+
+  // Read patient profile from localStorage (same-browser demo)
+  const rawProfile = localStorage.getItem('oralskop_profile')
+  let profileMeta = '—'
+  if (rawProfile) {
+    try {
+      const p = JSON.parse(rawProfile)
+      const parts = []
+      if (p.age)      parts.push(`${p.age} yrs`)
+      if (p.sex)      parts.push({ M: 'Male', F: 'Female', O: 'Other' }[p.sex] || p.sex)
+      if (p.smoker)   parts.push('smoker')
+      else            parts.push('non-smoker')
+      if (p.diabetic) parts.push('diabetic')
+      else            parts.push('non-diabetic')
+      profileMeta = parts.join(' · ')
+    } catch(e) {}
+  }
+  document.getElementById('case-meta').textContent = profileMeta
 
   const detList = document.getElementById('detections-list')
   const conditions = s.condition_summary || []

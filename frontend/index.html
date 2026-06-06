@@ -8,6 +8,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+  <script src="config.js"></script>
   <style>
     /* ── Design tokens ── */
     :root {
@@ -1241,8 +1242,7 @@
 const SUPABASE_URL  = 'https://ajqescdkdpbgtwbgejrw.supabase.co'
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFqcWVzY2RrZHBiZ3R3YmdlanJ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA2ODAyMjEsImV4cCI6MjA5NjI1NjIyMX0.Avowoy2T_AM4XY0DPgkAw95AvAwysn9d_QumrvVlZkU'
 
-// !! Update this when you start ngrok — or set to http://localhost:8000 for local dev
-const BASE_URL = 'http://localhost:8000'
+// BASE_URL loaded from config.js
 const CHATBOT_URL = `${BASE_URL}/api/chat`
 
 // ── Supabase client ──────────────────────────────────────────────────────────
@@ -1279,14 +1279,21 @@ function showApp() {
   // Restore last result if present
   const saved = localStorage.getItem('oralskop_last_result')
   if (saved) {
-    try { renderResults(JSON.parse(saved)) } catch(e) {}
+    try {
+      const parsed = JSON.parse(saved)
+      renderResults(parsed)
+      showChatbotBadge(parsed)   // restore badge after tab switch
+    } catch(e) {}
   }
   navigateTo('guide')
 }
 
 // ── Auth ─────────────────────────────────────────────────────────────────────
 async function loginWithGoogle() {
-  await sb.auth.signInWithOAuth({ provider: 'google' })
+  await sb.auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo: window.location.origin }
+  })
 }
 
 async function loginWithEmail() {
@@ -1353,7 +1360,7 @@ async function handlePhoto(event) {
 
     const res = await fetch(`${BASE_URL}/api/screenings`, {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${token}` },
+      headers: { 'Authorization': `Bearer ${token}`, 'ngrok-skip-browser-warning': 'true' },
       body: formData
     })
 
@@ -1543,7 +1550,7 @@ async function autoSummarise() {
   try {
     const res = await fetch(CHATBOT_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('oralskop_token')}` },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('oralskop_token')}`, 'ngrok-skip-browser-warning': 'true' },
       body: JSON.stringify({ messages: chatMessages, segmentation: chatSegmentation })
     })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -1578,7 +1585,7 @@ async function sendChat() {
   try {
     const res = await fetch(CHATBOT_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('oralskop_token')}` },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('oralskop_token')}`, 'ngrok-skip-browser-warning': 'true' },
       body: JSON.stringify({ messages: chatMessages, segmentation: chatSegmentation })
     })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
