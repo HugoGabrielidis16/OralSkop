@@ -8,13 +8,25 @@ results are stored. A frontend/backend integrator only needs to POST the
 conversation and the case's segmentation result.
 
 Provider: Anthropic **Claude** via the official ``anthropic`` SDK (ships in the
-``serve`` extra). The system prompt lives here, server-side, so callers cannot
-override how the assistant behaves — they only supply the conversation and the
-findings.
+``serve`` extra). Two backends are supported (same ``messages.create`` surface):
+
+* ``anthropic`` (default) — the first-party API; needs ``ANTHROPIC_API_KEY``.
+* ``bedrock`` — Amazon Bedrock via ``AnthropicBedrock``; authenticates with AWS
+  credentials (e.g. the SageMaker instance role), so no API key is needed. Needs
+  ``boto3`` (preinstalled on SageMaker) and ``bedrock:InvokeModel`` IAM access.
+
+The system prompt lives here, server-side, so callers cannot override how the
+assistant behaves — they only supply the conversation and the findings.
 
 Config (env vars):
-* ``ANTHROPIC_API_KEY``    — required; the SDK reads it automatically.
-* ``ORALSKOP_CHAT_MODEL``  — model id (default ``claude-opus-4-8``).
+* ``ORALSKOP_CHAT_BACKEND`` — ``anthropic`` (default) or ``bedrock``.
+* ``ANTHROPIC_API_KEY``     — required for the ``anthropic`` backend.
+* ``AWS_REGION``            — used by the ``bedrock`` backend (falls back to
+  ``AWS_DEFAULT_REGION`` then ``us-east-1``); AWS creds come from the env / role.
+* ``ORALSKOP_CHAT_MODEL``   — model id. Defaults: ``claude-opus-4-8`` (anthropic)
+  / ``us.anthropic.claude-sonnet-4-6`` (bedrock). On Bedrock the exact id (and
+  region prefix) depends on the inference profile available in your region —
+  verify with ``aws bedrock list-inference-profiles``.
 * ``ORALSKOP_CHAT_THINKING`` — set to ``1``/``true`` to enable adaptive thinking
   (off by default for snappy, predictable chat latency).
 """
@@ -28,6 +40,8 @@ import os
 _log = logging.getLogger("oralskop.serve.chat")
 
 DEFAULT_MODEL = "claude-opus-4-8"
+# Bedrock usually needs a cross-region inference profile id (region-prefixed).
+DEFAULT_BEDROCK_MODEL = "us.anthropic.claude-sonnet-4-6"
 
 # Kept server-side and non-overridable: this is what makes the endpoint a
 # *dental* assistant rather than a generic chatbot. The final paragraph keeps
@@ -121,16 +135,33 @@ class ChatService:
                 "uv sync --extra serve"
             ) from exc
 
-        from anthropic import Anthropic
+        backend = os.getenv("ORALSKOP_CHAT_BACKEND", "anthropic").lower()
+        if backend == "bedrock":
+            from anthropic import AnthropicBedrock
 
-        try:
-            self.client = Anthropic(api_key=api_key) if api_key else Anthropic()
-        except Exception as exc:  # missing key surfaces here
-            raise ChatUnavailable(
-                f"Could not initialize the Claude client (is ANTHROPIC_API_KEY set?): {exc}"
-            ) from exc
+            region = (os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION")
+                      or "us-east-1")
+            try:  # AWS creds resolve via boto3 (env / instance role); needs boto3
+                self.client = AnthropicBedrock(aws_region=region)
+            except Exception as exc:
+                raise ChatUnavailable(
+                    "Could not initialize the Bedrock client (needs boto3 and AWS "
+                    f"credentials/region; bedrock:InvokeModel IAM access): {exc}"
+                ) from exc
+            default_model = DEFAULT_BEDROCK_MODEL
+        else:
+            from anthropic import Anthropic
 
-        self.model = model or os.getenv("ORALSKOP_CHAT_MODEL", DEFAULT_MODEL)
+            try:
+                self.client = Anthropic(api_key=api_key) if api_key else Anthropic()
+            except Exception as exc:  # missing key surfaces here
+                raise ChatUnavailable(
+                    f"Could not initialize the Claude client (is ANTHROPIC_API_KEY set?): {exc}"
+                ) from exc
+            default_model = DEFAULT_MODEL
+
+        self.backend = backend
+        self.model = model or os.getenv("ORALSKOP_CHAT_MODEL", default_model)
         self.max_tokens = max_tokens
         if thinking is None:
             thinking = os.getenv("ORALSKOP_CHAT_THINKING", "").lower() in ("1", "true", "yes")
