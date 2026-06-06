@@ -1,0 +1,22 @@
+# OralSkop — 4-class dental pathology dataset (YOLO segmentation format)
+# `path` is resolved relative to this yaml file's location.
+# Run training from the project root:  python models/train.py
+# On SageMaker: change path to the absolute path where you mounted your data.
+#
+# Expected layout:
+#   <path>/images/train/   <path>/labels/train/
+#   <path>/images/val/     <path>/labels/val/
+#   <path>/images/test/    <path>/labels/test/   (optional)
+
+path: ../data   # relative to models/ → resolves to <project_root>/data/
+
+train: images/train
+val:   images/val
+test:  images/test
+
+nc: 4
+names:
+  0: sain
+  1: carie
+  2: lesion_benigne
+  3: lesion_maligne
