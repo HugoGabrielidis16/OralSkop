@@ -30,6 +30,27 @@ _DEFAULT_LORA_TARGETS = ["query", "key", "value", "dense", "fc1", "fc2"]
 BACKBONE_STATE_PREFIX = "model.backbone.conv_encoder.model."
 
 
+def _detr_conv_encoder(model):
+    """Return the DETR conv encoder across transformers layout variants."""
+    backbone = model.model.backbone
+    if hasattr(backbone, "conv_encoder"):
+        backbone = backbone.conv_encoder
+    if not hasattr(backbone, "model"):
+        raise AttributeError(
+            "Could not locate DETR backbone model slot. Expected "
+            "`model.model.backbone.model` or `model.model.backbone.conv_encoder.model`."
+        )
+    return backbone
+
+
+def _get_detr_backbone_model(model):
+    return _detr_conv_encoder(model).model
+
+
+def _set_detr_backbone_model(model, backbone):
+    _detr_conv_encoder(model).model = backbone
+
+
 def resolve_model_id(arch: str) -> str:
     if arch.startswith("hf:"):
         return arch[len("hf:"):]
@@ -98,12 +119,12 @@ def build_detector(
                         use_timm_backbone=False, use_pretrained_backbone=False,
                         backbone_config=backbone.config)
     model = DetrForObjectDetection(config)
-    model.model.backbone.conv_encoder.model = backbone
+    _set_detr_backbone_model(model, backbone)
 
     if lora:
         from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 
-        bb = model.model.backbone.conv_encoder.model
+        bb = _get_detr_backbone_model(model)
         if bnb_config is not None:
             bb = prepare_model_for_kbit_training(
                 bb, use_gradient_checkpointing=grad_checkpointing,
@@ -113,7 +134,7 @@ def build_detector(
         lora_cfg = LoraConfig(
             r=int(lora_r), lora_alpha=int(lora_alpha), lora_dropout=float(lora_dropout),
             target_modules=list(lora_target_modules or _DEFAULT_LORA_TARGETS), bias="none")
-        model.model.backbone.conv_encoder.model = get_peft_model(bb, lora_cfg)
+        _set_detr_backbone_model(model, get_peft_model(bb, lora_cfg))
 
     preprocess = _processor_preprocess(model_id, imgsz)
     return model, preprocess
