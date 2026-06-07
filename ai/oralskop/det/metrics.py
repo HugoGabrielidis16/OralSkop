@@ -6,11 +6,21 @@ pixel coordinates (consistent between preds and targets), matching torchmetrics'
 
 from __future__ import annotations
 
+import os
+
 import torch
+
+
+def _use_headless_matplotlib_backend():
+    """Avoid notebook-only matplotlib backends in tmux/subprocess metric imports."""
+    backend = os.environ.get("MPLBACKEND", "")
+    if backend.startswith("module://"):
+        os.environ["MPLBACKEND"] = "Agg"
 
 
 def new_map_metric(class_metrics: bool = True):
     """Create a fresh ``MeanAveragePrecision`` (xyxy boxes, per-class AP)."""
+    _use_headless_matplotlib_backend()
     try:
         from torchmetrics.detection import MeanAveragePrecision
     except ImportError as exc:  # pragma: no cover - env-dependent
