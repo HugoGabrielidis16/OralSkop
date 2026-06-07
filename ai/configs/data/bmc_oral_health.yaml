@@ -1,0 +1,45 @@
+# BMC Oral Health 2024 — calculus / gingivitis / caries (+ soft-scale) segmentation.
+# Paper: https://link.springer.com/article/10.1186/s12903-024-05072-1  (open access)
+# Data : public Google Drive folder. Download with:
+#            uv run --with gdown python scripts/download_bmc.py
+#        ~6,700 loose files; Drive rate-limits per-file pulls (re-run to resume), or
+#        download via the browser as a server-side zip. See scripts/download_bmc.py.
+#
+# VERIFIED layout (from the real Drive folder):
+#   images/(N).jpg   x3375     <- images_subdir
+#   lables/(N).png   x3365     <- masks_subdir  (author's misspelling "lables")
+# Masks are grayscale-indexed with non-zero values {1, 2, 3, 4} (0 = background).
+#
+# VALUE -> CLASS MAPPING (confirmed empirically).
+# The masks carry 4 values; the paper's rubric separates "soft scale" (plaque) from
+# "dental calculus". Mapping was verified by correlating the value present in each mask
+# against the condition encoded in its filename (gingivitis_/caries_0_/unprefixed) plus
+# visual inspection of colored overlays:
+#   v1 -> gingivitis  (100% of gingivitis-named masks, 0% elsewhere; sits on the gumline)
+#   v2 -> calculus    (dominant in the unprefixed/calculus set; deposits at tooth-gum margin)
+#   v3 -> plaque      (tooth-surface soft scale; co-occurs with caries+calculus, never gingivitis-only)
+#   v4 -> caries      (present in ~70% of caries-named masks, ~0% elsewhere)
+# Filenames are e.g. caries_0_(N).png / gingivitis_(N).png / (N).png; images & masks
+# share the same stem so the converter matches them automatically.
+
+converter: mask_semantic
+name: bmc_oral_health
+
+raw_root: datasets/BMCOralHealth
+images_subdir: images
+masks_subdir: lables
+mask_ext: .png
+
+# pixel value -> canonical class name (from configs/taxonomy.yaml).
+class_map:
+  1: gingivitis
+  2: calculus
+  3: plaque
+  4: caries
+
+min_area: 25          # ignore connected components smaller than this (px^2)
+poly_epsilon: 1.5     # contour simplification tolerance (px); higher = fewer points
+
+split:
+  val_fraction: 0.2   # paper uses 6:2:2; we re-split train/val here
+  seed: 42

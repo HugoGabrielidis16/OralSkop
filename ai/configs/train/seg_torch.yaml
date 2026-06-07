@@ -7,7 +7,10 @@ datasets: [alphadent]
 split_train: train
 split_val: val
 
-# Model: deeplabv3_resnet50 | deeplabv3_mobilenet_v3_large | fcn_resnet50 | lraspp_mobilenet_v3_large
+# Model: deeplabv3_resnet50 | deeplabv3_mobilenet_v3_large | fcn_resnet50 |
+# lraspp_mobilenet_v3_large | unet | deeplabv3plus_resnet50 |
+# deeplabv3plus_efficientnet-b4 | segformer_mit_b2 | segformer_mit_b3 |
+# dinov2_small | dinov2_base | dinov2_large
 arch: deeplabv3_resnet50
 pretrained: true
 
@@ -16,11 +19,25 @@ epochs: 50
 batch: 8
 lr: 0.0002
 weight_decay: 0.0001
+optimizer: adamw       # adamw | sgd
+momentum: 0.9          # SGD only
+nesterov: false        # SGD only
+scheduler: none        # none | cosine | poly
+warmup_epochs: 0
+min_lr_factor: 0.0     # cosine/poly floor as a fraction of lr
+poly_power: 0.9
+loss: ce               # ce | ce_dice | focal | focal_dice | lovasz
+aug: flip              # none | flip | light | strong (flip preserves the old default)
 workers: 8
 device: 0              # 0 / "cuda" for GPU, "cpu" for smoke tests
 amp: true              # mixed precision (GPU only)
 aux_loss_weight: 0.4   # deeplab/fcn auxiliary head loss weight
 class_weights: null    # "auto" = median-frequency balancing for class imbalance
+grad_checkpointing: false
+lora: false            # Transformer backbones (SegFormer/DINOv2); requires `uv sync --extra explore`
+lora_r: 8
+lora_alpha: 16
+lora_targets: null     # null = q,kv,proj,query,key,value; or comma-separated names
 val_interval: 1
 progress: true         # tqdm train/val progress bars
 log_per_class: true    # print per-class IoU/Dice/accuracy after each validation
@@ -29,3 +46,12 @@ seed: 42
 
 out: runs/seg
 name: deeplabv3_alphadent
+exist_ok: false        # false = auto-increment (name2, name3, ...) so a new run never
+                       # overwrites old checkpoints; true = reuse/overwrite runs/seg/<name>
+
+# Weights & Biases logging (optional). Install with `uv sync --extra wandb`, then set
+# WANDB_API_KEY in the notebook (or run `wandb login <token>`) before training.
+wandb: false
+wandb_project: oralskop-seg
+wandb_entity: null     # team/user; null = your default entity
+wandb_images: 8        # log this many val prediction overlays each validation (0 = none)

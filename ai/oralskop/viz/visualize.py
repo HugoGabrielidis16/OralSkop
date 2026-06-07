@@ -7,6 +7,10 @@ data the colors are consistent across datasets (class 4 == calculus everywhere).
 Opens a window and shows the sampled images ONE BY ONE with a color legend.
 Keys:  →/space = next   ←/a = previous   s = save current   q/esc = quit
 
+Saving (the `s` key, or headless `--save DIR`) writes THREE PNGs per image:
+``<stem>_raw.png`` (original photo), ``<stem>_overlay.png`` (photo + colored masks),
+and ``<stem>_mask.png`` (colored polygons on black). All three share the same size.
+
 Examples
 --------
     # Random 12 images from the built AlphaDent dataset (any split)
@@ -20,7 +24,7 @@ Examples
         --labels-dir datasets/CariesRoboflow/train/labels \
         --names-yaml datasets/CariesRoboflow/data.yaml --num_imgs 8
 
-    # Headless (no display): write overlays to a folder instead
+    # Headless (no display): write raw + overlay + mask PNGs to a folder instead
     python -m oralskop.viz.visualize --dataset alphadent --num_imgs 12 --save runs/viz/alphadent
 
 The dataset must be built first:  python -m oralskop.data.prepare --datasets <name>
@@ -160,6 +164,35 @@ def draw_overlay(
     return out, present
 
 
+def draw_mask(
+    shape: tuple[int, ...],
+    polygons: list[tuple[int, list[float]]],
+    classes: set[int] | None = None,
+) -> tuple[np.ndarray, dict[int, int]]:
+    """Return (mask, {class_id: count}) — colored polygons on a black background.
+
+    A clean label-map (no underlying photo): each instance filled + thinly outlined
+    in its class color. Same palette as the overlay, so the colors match.
+    """
+    h, w = shape[:2]
+    canvas = np.zeros((h, w, 3), dtype=np.uint8)
+    present: dict[int, int] = {}
+    for class_id, coords in polygons:
+        if classes is not None and class_id not in classes:
+            continue
+        pts = np.array(
+            [(coords[i] * w, coords[i + 1] * h) for i in range(0, len(coords) - 1, 2)],
+            dtype=np.int32,
+        )
+        if len(pts) < 3:
+            continue
+        color = color_for(class_id)
+        cv2.fillPoly(canvas, [pts], color)
+        cv2.polylines(canvas, [pts], isClosed=True, color=color, thickness=2)
+        present[class_id] = present.get(class_id, 0) + 1
+    return canvas, present
+
+
 def draw_legend(
     image: np.ndarray,
     class_ids: list[int],
@@ -201,19 +234,54 @@ def _fit_to_screen(image: np.ndarray, max_dim: int) -> np.ndarray:
     return cv2.resize(image, (int(w * s), int(h * s)), interpolation=cv2.INTER_AREA)
 
 
+def render_variants(img_path: Path, label_path: Path, names: dict[int, str],
+                    alpha: float, classes: set[int] | None,
+                    max_dim: int) -> dict | None:
+    """Read an image and produce the three screen-fitted renderings.
+
+    Returns a dict with keys ``raw`` (original photo), ``overlay`` (photo + colored
+    masks + legend), ``mask`` (colored polygons on black), and ``present`` (the
+    {class_id: count} map), or ``None`` if the image can't be read. All three images
+    share the same fitted size, so they line up pixel-for-pixel.
+    """
+    image = cv2.imread(str(img_path))
+    if image is None:
+        return None
+    polys = parse_polygons(label_path.read_text()) if label_path.exists() else []
+
+    raw = _fit_to_screen(image.copy(), max_dim)
+
+    # draw_overlay mutates the array it's given, so hand it its own copy.
+    overlay, present = draw_overlay(image.copy(), polys, alpha=alpha, classes=classes)
+    # Fit to display size FIRST, then draw the legend so it stays a readable size.
+    overlay = _fit_to_screen(overlay, max_dim)
+    overlay = draw_legend(overlay, sorted(present), names, counts=present)
+
+    mask, _ = draw_mask(image.shape, polys, classes=classes)
+    mask = _fit_to_screen(mask, max_dim)
+
+    return {"raw": raw, "overlay": overlay, "mask": mask, "present": present}
+
+
 def render(img_path: Path, label_path: Path, names: dict[int, str],
            alpha: float, classes: set[int] | None,
            max_dim: int) -> tuple[np.ndarray | None, dict[int, int]]:
     """Read an image -> screen-fitted mask overlay with a readable legend on top."""
-    image = cv2.imread(str(img_path))
-    if image is None:
+    v = render_variants(img_path, label_path, names, alpha, classes, max_dim)
+    if v is None:
         return None, {}
-    polys = parse_polygons(label_path.read_text()) if label_path.exists() else []
-    overlay, present = draw_overlay(image, polys, alpha=alpha, classes=classes)
-    # Fit to display size FIRST, then draw the legend so it stays a readable size.
-    overlay = _fit_to_screen(overlay, max_dim)
-    overlay = draw_legend(overlay, sorted(present), names, counts=present)
-    return overlay, present
+    return v["overlay"], v["present"]
+
+
+def save_variants(out_dir: Path, stem: str, variants: dict) -> list[Path]:
+    """Write raw / overlay / mask PNGs for one image; return the paths written."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written = []
+    for key in ("raw", "overlay", "mask"):
+        dst = out_dir / f"{stem}_{key}.png"
+        cv2.imwrite(str(dst), variants[key])
+        written.append(dst)
+    return written
 
 
 def view_interactive(sample, names, alpha, classes, max_dim: int) -> None:
@@ -223,14 +291,15 @@ def view_interactive(sample, names, alpha, classes, max_dim: int) -> None:
     i, n = 0, len(sample)
     while True:
         img_path, label_path = sample[i]
-        overlay, present = render(img_path, label_path, names, alpha, classes, max_dim)
-        if overlay is None:
+        variants = render_variants(img_path, label_path, names, alpha, classes, max_dim)
+        if variants is None:
             print(f"  skip (unreadable): {img_path.name}")
             i = (i + 1) % n
             continue
+        present = variants["present"]
         cv2.setWindowTitle(win, f"[{i + 1}/{n}] {img_path.name}  -  "
                                 f"{sum(present.values())} masks")
-        cv2.imshow(win, overlay)
+        cv2.imshow(win, variants["overlay"])
         print(f"  [{i + 1}/{n}] {img_path.name}: "
               f"{ {names.get(k, k): v for k, v in present.items()} }")
 
@@ -239,11 +308,9 @@ def view_interactive(sample, names, alpha, classes, max_dim: int) -> None:
             break
         elif key in (ord("a"), 81, 2):                 # left arrow / a
             i = (i - 1) % n
-        elif key == ord("s"):                          # save current frame
-            dst = AI_ROOT / "runs/viz" / f"{img_path.stem}.png"
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            cv2.imwrite(str(dst), overlay)
-            print(f"    saved -> {dst}")
+        elif key == ord("s"):                          # save raw + overlay + mask
+            written = save_variants(AI_ROOT / "runs/viz", img_path.stem, variants)
+            print(f"    saved -> {', '.join(str(p) for p in written)}")
         else:                                          # right arrow / space / any other
             i = (i + 1) % n
     cv2.destroyAllWindows()
@@ -274,7 +341,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--alpha", type=float, default=0.4, help="Mask fill opacity.")
     p.add_argument("--classes", help="Comma-separated class ids to show (default: all).")
     p.add_argument("--max-dim", type=int, default=1100, help="Max on-screen image size (px).")
-    p.add_argument("--save", metavar="DIR", help="Headless: save overlays to DIR instead "
+    p.add_argument("--save", metavar="DIR", help="Headless: for each sampled image write "
+                   "<stem>_raw.png, <stem>_overlay.png and <stem>_mask.png to DIR instead "
                    "of opening a window.")
     return p.parse_args(argv)
 
@@ -305,19 +373,20 @@ def main(argv: list[str] | None = None) -> None:
           f"showing {len(sample)} of {len(candidates)} images (seed={args.seed})")
     print(f"Classes: {names or '(none — showing raw ids)'}")
 
-    # Headless save mode.
+    # Headless save mode: write raw + overlay + mask for every sampled image.
     if args.save:
         out_dir = Path(args.save)
         out_dir.mkdir(parents=True, exist_ok=True)
         for img_path, label_path in sample:
-            overlay, present = render(img_path, label_path, names, args.alpha,
-                                      classes, args.max_dim)
-            if overlay is None:
+            variants = render_variants(img_path, label_path, names, args.alpha,
+                                       classes, args.max_dim)
+            if variants is None:
                 print(f"  skip (unreadable): {img_path.name}")
                 continue
-            cv2.imwrite(str(out_dir / f"{img_path.stem}.png"), overlay)
-            print(f"  {img_path.name}: {sum(present.values())} masks")
-        print(f"Saved overlays -> {out_dir}")
+            save_variants(out_dir, img_path.stem, variants)
+            print(f"  {img_path.name}: {sum(variants['present'].values())} masks "
+                  f"-> {img_path.stem}_{{raw,overlay,mask}}.png")
+        print(f"Saved raw + overlay + mask images -> {out_dir}")
         return
 
     # Interactive window (default).

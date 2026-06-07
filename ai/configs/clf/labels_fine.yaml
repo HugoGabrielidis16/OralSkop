@@ -1,0 +1,41 @@
+# Fine multi-label vocabulary for the manifest classifier (doc §4).
+#
+# Order defines the class index the model predicts; treat as APPEND-ONLY. Fine
+# labels in the manifest that are not listed here are skipped-with-warning at load
+# time (the loader reports how many occurrences were dropped) — add them here if
+# coverage matters for your task.
+level: fine
+classes:
+  - muqueuse_saine
+  - caries_moderee
+  - caries_cavitaire
+  - caries_initiale
+  - caries_dent_temporaire
+  - caries_dent_permanente
+  - gingivite
+  - parodontite
+  - gingivite_gradee_MGI
+  - ulcere
+  - aphte
+  - herpes
+  - candidose
+  - gingivostomatite
+  - tumeur_benigne_ou_kyste
+  - opmd
+  - cancer_oral
+  - tartre
+  - plaque
+  - decoloration
+  - coloration_externe
+  - hypodontie
+  - dent_saine
+  - gencive_saine
+  - sain_generique
+  - langue_normale
+  - langue_marquee
+  - dent_objet
+  - bouche
+  - malocclusion
+  - espacement
+  - abces
+  - fracture_fissure

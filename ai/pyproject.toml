@@ -15,11 +15,61 @@ dependencies = [
     "scikit-learn>=1.4",
     "numpy>=1.26",
     "tqdm>=4.66",
+    # Inline notebook figures for the qualitative test tool (also pulled by ultralytics).
+    "matplotlib>=3.7",
 ]
 
 [project.optional-dependencies]
 # Experiment tracking — install with: uv sync --extra wandb
 wandb = ["wandb>=0.17"]
+# Multi-label manifest classifier (oralskop.clf) — `uv sync --extra clf`.
+# pandas reads the manifest CSV; s3fs lets pandas + fsspec open s3:// paths so the
+# AWS notebook can train straight from the bucket (it pulls fsspec + boto3).
+clf = [
+    "pandas>=2.0",
+    "s3fs>=2024.0",
+]
+# FastAPI serving (notebook endpoint for a trained model) — `uv sync --extra serve`.
+# pyngrok exposes a public URL from the notebook; nest_asyncio lets uvicorn coexist
+# with the kernel's event loop.
+serve = [
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "python-multipart>=0.0.9",
+    "pyngrok>=7.0",
+    "nest-asyncio>=1.6",
+    # Chat endpoint (/chat): Claude via the official Anthropic SDK. The
+    # [bedrock] extra pulls boto3 so ORALSKOP_CHAT_BACKEND=bedrock works
+    # (AnthropicBedrock needs botocore; it's not in the isolated uv venv).
+    "anthropic[bedrock]>=0.40",
+    # Rekognition mouth-crop preprocessing in the segmentation serving path.
+    "boto3>=1.34",
+]
+# Optional semantic-segmentation exploration stack.
+explore = [
+    "segmentation-models-pytorch>=0.3.4",
+    "albumentations>=1.4",
+    "transformers>=4.44",
+    "peft>=0.11",
+    "timm>=0.9",
+]
+# QLoRA fine-tuning of foundation models (oralskop.clf with arch=dinov2_large etc.).
+# bitsandbytes is CUDA/Linux-only (installs on the SageMaker GPU box, not on mac/CPU):
+#   uv sync --extra clf --extra qlora
+qlora = [
+    "transformers>=4.44",
+    "peft>=0.11",
+    "bitsandbytes>=0.43",
+    "accelerate>=0.30",
+]
+# Object detection (oralskop.det: DINOv2-backbone DETR). Uses the qlora extra for
+# transformers/peft; adds detection mAP + DETR backbone deps:
+#   uv sync --extra clf --extra qlora --extra det
+det = [
+    "torchmetrics>=1.0",
+    "pycocotools>=2.0",
+    "timm>=0.9",
+]
 
 [project.scripts]
 oralskop-prepare = "oralskop.cli:prepare_main"
@@ -27,8 +77,15 @@ oralskop-coverage = "oralskop.data.coverage:main"
 oralskop-describe = "oralskop.data.describe:main"
 oralskop-train = "oralskop.train.train:main"
 oralskop-train-seg = "oralskop.torchseg.train:main"
+oralskop-test-seg = "oralskop.torchseg.test:main"
 oralskop-eval = "oralskop.eval.evaluate:main"
 oralskop-viz = "oralskop.viz.visualize:main"
+oralskop-yolo-semantic = "oralskop.bench.semantic_from_yolo:main"
+oralskop-serve = "oralskop.serve.app:main"
+oralskop-train-clf = "oralskop.clf.train:main"
+oralskop-eval-clf = "oralskop.clf.eval:main"
+oralskop-train-det = "oralskop.det.train:main"
+oralskop-eval-det = "oralskop.det.eval:main"
 
 [build-system]
 requires = ["hatchling"]

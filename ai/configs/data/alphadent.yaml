@@ -1,0 +1,38 @@
+# AlphaDent dataset config.
+#
+# AlphaDent ships in YOLO instance-seg format with 9 NATIVE classes. The mapping
+# below is taken from the dataset authors' own `convert_9_classes_dataset_to_4_classes.py`
+# (https://github.com/ZFTurbo/AlphaDent):
+#     0 = Abrasion, 1 = Filling, 2 = Crown, 3..8 = Caries (six subtypes).
+# The six caries subtypes are collapsed to the canonical `caries` class (matching the
+# authors' published 4-class model). Exact subtype names are unconfirmed; if a future
+# taxonomy needs them, split here.
+
+converter: alphadent
+name: alphadent
+
+# Raw dataset root, relative to the ai/ directory.
+raw_root: datasets/AlphaDent
+images_subdir: images/train
+labels_subdir: labels/train
+
+# Regex to extract a grouping key (patient id) from the image stem, so train/val
+# splits never put the same patient on both sides. AlphaDent stems look like
+# `p021_M_49_006` -> group `p021`.
+patient_id_regex: '^(p\d+)_'
+
+# native class index -> canonical class NAME (must exist in configs/taxonomy.yaml)
+class_map:
+  0: abrasion
+  1: filling
+  2: crown
+  3: caries   # caries subtype 1
+  4: caries   # caries subtype 2
+  5: caries   # caries subtype 3
+  6: caries   # caries subtype 4
+  7: caries   # caries subtype 5
+  8: caries   # caries subtype 6
+
+split:
+  val_fraction: 0.15
+  seed: 42
