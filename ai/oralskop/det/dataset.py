@@ -257,6 +257,39 @@ def build_transforms(imgsz: int, mean=_MEAN, std=_STD):
     ])
 
 
+def _letterbox(img, boxes, imgsz: int):
+    """Aspect-preserving resize to ``imgsz`` + center pad; remap normalized boxes.
+
+    The square ``Resize`` squashes objects (a tall lesion becomes wide), so we instead
+    scale the long side to ``imgsz`` and pad the short side. ``boxes`` are normalized
+    ``cx,cy,w,h`` to the original WxH; this re-normalizes them to the padded square.
+    Returns ``(resized_PIL_image, remapped_boxes_list)``.
+    """
+    from PIL import Image as _Image
+
+    w, h = img.size
+    scale = imgsz / max(w, h)
+    nw, nh = max(round(w * scale), 1), max(round(h * scale), 1)
+    pad_x, pad_y = (imgsz - nw) / 2.0, (imgsz - nh) / 2.0
+    canvas = _Image.new("RGB", (imgsz, imgsz), (114, 114, 114))
+    canvas.paste(img.resize((nw, nh), _Image.BILINEAR), (round(pad_x), round(pad_y)))
+    out = [(
+        (cx * nw + pad_x) / imgsz,
+        (cy * nh + pad_y) / imgsz,
+        bw * nw / imgsz,
+        bh * nh / imgsz,
+    ) for cx, cy, bw, bh in boxes]
+    return canvas, out
+
+
+def _hflip(img, boxes):
+    """Horizontal flip of the image and its normalized boxes (``cx -> 1 - cx``)."""
+    from PIL import Image as _Image
+
+    flipped = img.transpose(_Image.FLIP_LEFT_RIGHT)
+    return flipped, [(1.0 - cx, cy, bw, bh) for cx, cy, bw, bh in boxes]
+
+
 def det_collate_fn(batch):
     """Stack pixel_values; keep targets as a list of dicts (HF DETR contract)."""
     pixel_values = torch.stack([b[0] for b in batch])
@@ -279,11 +312,27 @@ class ManifestDetDataset(Dataset):
         std=_STD,
         box_label_config: BoxLabelConfig | None = None,
         unreadable_log_limit: int = 0,
+        train: bool = False,
+        augment: bool = True,
+        letterbox: bool = True,
+        hflip: bool = True,
+        color_jitter: float = 0.2,
     ):
         self.vocab = vocab
         self.image_root = image_root
         self.cache_dir = cache_dir
-        self.transform = build_transforms(imgsz, mean=mean, std=std)
+        self.imgsz = int(imgsz)
+        self.letterbox = bool(letterbox)
+        # Random aug only on the train split; val/test get letterbox-only geometry.
+        self.do_aug = bool(train and augment)
+        self.do_hflip = self.do_aug and bool(hflip)
+        cj = float(color_jitter or 0.0)
+        self.jitter = (transforms.ColorJitter(brightness=cj, contrast=cj, saturation=cj)
+                       if self.do_aug and cj > 0 else None)
+        self.to_tensor = transforms.Compose([
+            transforms.ToTensor(), transforms.Normalize(mean, std)])
+        # Fallback square resize when letterbox is off (normalized boxes are resize-invariant).
+        self.square_resize = transforms.Resize((self.imgsz, self.imgsz))
         self.box_label_config = box_label_config or BoxLabelConfig()
         self.unreadable_log_limit = max(int(unreadable_log_limit or 0), 0)
 
@@ -368,13 +417,25 @@ class ManifestDetDataset(Dataset):
             if idx not in self._missing:
                 rel_img, rel_lbl, dataset, image_labels = self.samples[idx]
                 try:
-                    img = self.transform(_load_image(_join_uri(self.image_root, rel_img), self.cache_dir))
+                    pil = _load_image(_join_uri(self.image_root, rel_img), self.cache_dir)
                     records = parse_yolo_box_records(_load_text(_join_uri(self.image_root, rel_lbl), self.cache_dir))
                     if not records:
                         raise ValueError("no boxes")
                     target = self._target_from_records(records, dataset=dataset, image_labels=image_labels)
                     if target is None:
                         raise ValueError("no mapped boxes")
+                    # Apply geometry jointly to image + boxes (boxes stay aligned with class_labels).
+                    boxes = [tuple(b) for b in target["boxes"].tolist()]
+                    if self.letterbox:
+                        pil, boxes = _letterbox(pil, boxes, self.imgsz)
+                    else:
+                        pil = self.square_resize(pil)  # boxes are normalized -> unchanged
+                    if self.do_hflip and random.random() < 0.5:
+                        pil, boxes = _hflip(pil, boxes)
+                    if self.jitter is not None:
+                        pil = self.jitter(pil)
+                    target["boxes"] = torch.tensor(boxes, dtype=torch.float32).reshape(-1, 4)
+                    img = self.to_tensor(pil)
                     return img, target
                 except Exception as exc:  # missing/empty/corrupt image or label
                     self._missing.add(idx)

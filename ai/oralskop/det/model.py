@@ -51,6 +51,29 @@ def _set_detr_backbone_model(model, backbone):
     _detr_conv_encoder(model).model = backbone
 
 
+def _warm_start_from_coco(model, pretrained_detr: str) -> int:
+    """Load a COCO-pretrained DETR transformer into ``model`` (shape-matched).
+
+    Only the backbone is pretrained when we build DETR from a DINOv2 ``backbone_config``;
+    the encoder/decoder/object-queries/box head start random and need 300-500 epochs to
+    converge. ``facebook/detr-resnet-50`` shares DETR's defaults (d_model 256, 6/6 layers,
+    100 queries), so its transformer + ``bbox_predictor`` load directly. The DINOv2 backbone,
+    the ``input_projection`` (channel count differs), and the COCO ``class_labels_classifier``
+    (91+1 vs C+1) are shape-mismatched and skipped. Returns the number of tensors transferred.
+    """
+    from transformers import DetrForObjectDetection
+
+    src = DetrForObjectDetection.from_pretrained(pretrained_detr).state_dict()
+    own = model.state_dict()
+    keep = {
+        k: v for k, v in src.items()
+        if k in own and own[k].shape == v.shape
+        and not k.startswith(("model.backbone.", "model.input_projection"))
+    }
+    model.load_state_dict(keep, strict=False)
+    return len(keep)
+
+
 def resolve_model_id(arch: str) -> str:
     if arch.startswith("hf:"):
         return arch[len("hf:"):]
@@ -89,6 +112,7 @@ def build_detector(
     compute_dtype: torch.dtype = torch.bfloat16,
     num_queries: int = 100,
     imgsz: int | None = None,
+    pretrained_detr: str | None = "facebook/detr-resnet-50",
 ):
     """Build a DINOv2-backbone DETR. Returns ``(model, preprocess)``."""
     try:
@@ -120,6 +144,13 @@ def build_detector(
                         backbone_config=backbone.config)
     model = DetrForObjectDetection(config)
     _set_detr_backbone_model(model, backbone)
+
+    # Warm-start the (otherwise random) DETR transformer + box head from COCO. Done before
+    # the LoRA wrap so backbone key renaming is irrelevant (backbone keys are skipped anyway).
+    if pretrained_detr:
+        n = _warm_start_from_coco(model, pretrained_detr)
+        print(f">> warm-started {n} tensors from {pretrained_detr} "
+              f"(reinit: backbone, input_projection, class head)")
 
     if lora:
         from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training

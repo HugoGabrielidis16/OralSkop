@@ -21,7 +21,7 @@ import torch
 from tqdm.auto import tqdm
 
 from oralskop.config import apply_overrides, load_yaml
-from oralskop.clf.train import build_optimizer, build_scheduler, resolve_run_dir, wandb_setup
+from oralskop.clf.train import build_scheduler, resolve_run_dir, wandb_setup
 from oralskop.clf.vocab import build_vocab
 from oralskop.det.dataset import (
     AI_ROOT,
@@ -43,6 +43,67 @@ from oralskop.det.model import build_detector, build_detr_processor
 _SPLIT_TRAIN = "train"
 _SPLIT_VAL = "valid"
 _LOSS_COMPONENTS = ("loss_ce", "loss_bbox", "loss_giou")
+
+
+def build_det_optimizer(cfg: dict, model) -> torch.optim.Optimizer:
+    """Like ``clf.build_optimizer`` but with a DETR-style backbone/transformer LR split.
+
+    The DINOv2 backbone (LoRA adapters) trains at ``backbone_lr`` (default ``lr * 0.1``);
+    the warm-started DETR transformer + heads train at ``lr``. Only ``requires_grad``
+    params are optimized (the 4-bit/frozen base is excluded).
+    """
+    name = str(cfg.get("optimizer", "adamw")).lower().replace("-", "_")
+    lr = float(cfg.get("lr", 1e-4))
+    weight_decay = float(cfg.get("weight_decay", 1e-4))
+    backbone_lr = cfg.get("backbone_lr")
+    backbone_lr = float(backbone_lr) if backbone_lr is not None else lr * 0.1
+
+    bb, head = [], []
+    for pname, p in model.named_parameters():
+        if not p.requires_grad:
+            continue
+        (bb if "backbone" in pname else head).append(p)
+    groups = [g for g in ({"params": head, "lr": lr},
+                          {"params": bb, "lr": backbone_lr}) if g["params"]]
+
+    if name == "adamw":
+        return torch.optim.AdamW(groups, lr=lr, weight_decay=weight_decay)
+    if name == "sgd":
+        return torch.optim.SGD(groups, lr=lr, momentum=float(cfg.get("momentum", 0.9)),
+                               weight_decay=weight_decay, nesterov=bool(cfg.get("nesterov", False)))
+    if name in {"adamw8bit", "paged_adamw8bit", "adamw_8bit", "paged_adamw_8bit"}:
+        try:
+            import bitsandbytes as bnb
+        except ImportError as exc:  # pragma: no cover - env-dependent
+            raise ImportError("8-bit optimizers need the `qlora` extra (bitsandbytes): "
+                              "uv sync --extra qlora.") from exc
+        Opt = bnb.optim.PagedAdamW8bit if "paged" in name else bnb.optim.AdamW8bit
+        return Opt(groups, lr=lr, weight_decay=weight_decay)
+    raise ValueError(f"Unknown optimizer {name!r}. Options: adamw, sgd, adamw8bit, paged_adamw8bit")
+
+
+def dump_box_overlays(dataset, out_dir, n: int, mean, std) -> None:
+    """Draw GT boxes on ``n`` samples and save them — a one-off label/geometry sanity check."""
+    from PIL import Image, ImageDraw
+
+    mean = torch.tensor(mean).view(3, 1, 1)
+    std = torch.tensor(std).view(3, 1, 1)
+    dest = Path(out_dir) / "debug_boxes"
+    dest.mkdir(parents=True, exist_ok=True)
+    count = min(int(n), len(dataset))
+    for i in range(count):
+        img, target = dataset[i]
+        arr = (img * std + mean).clamp(0, 1).mul(255).byte().permute(1, 2, 0).numpy()
+        pil = Image.fromarray(arr)
+        draw = ImageDraw.Draw(pil)
+        s = pil.size[0]
+        for (cx, cy, w, h), c in zip(target["boxes"].tolist(), target["class_labels"].tolist()):
+            x1, y1 = (cx - w / 2) * s, (cy - h / 2) * s
+            x2, y2 = (cx + w / 2) * s, (cy + h / 2) * s
+            draw.rectangle([x1, y1, x2, y2], outline=(255, 0, 0), width=2)
+            draw.text((x1 + 2, y1 + 2), str(c), fill=(255, 255, 0))
+        pil.save(dest / f"sample_{i:02d}.png")
+    print(f">> wrote {count} box-overlay sanity images -> {dest}")
 
 
 def _to_device_targets(targets, device):
@@ -153,7 +214,7 @@ def main(argv=None):
         lora_dropout=cfg.get("lora_dropout", 0.05),
         grad_checkpointing=bool(cfg.get("grad_checkpointing", True)),
         compute_dtype=compute_dtype, num_queries=int(cfg.get("num_queries", 100)),
-        imgsz=cfg.get("imgsz"))
+        imgsz=cfg.get("imgsz"), pretrained_detr=cfg.get("pretrained_detr", "facebook/detr-resnet-50"))
     is_quant = str(cfg.get("quantize", "none")).lower() == "4bit"
     if not is_quant:
         model = model.to(device)
@@ -166,9 +227,11 @@ def main(argv=None):
     ds_kw = dict(image_root=cfg.get("image_root", "s3://datastoraged4gen/02_PROCESSED"),
                  imgsz=imgsz, cache_dir=cfg.get("cache_dir"), mean=mean, std=std,
                  box_label_config=box_label_config,
-                 unreadable_log_limit=int(cfg.get("unreadable_log_limit", 0) or 0))
-    train_ds = ManifestDetDataset(df[df["split"].str.strip() == _SPLIT_TRAIN], vocab, **ds_kw)
-    val_ds = ManifestDetDataset(df[df["split"].str.strip() == _SPLIT_VAL], vocab, **ds_kw)
+                 unreadable_log_limit=int(cfg.get("unreadable_log_limit", 0) or 0),
+                 letterbox=bool(cfg.get("letterbox", True)), augment=bool(cfg.get("augment", True)),
+                 hflip=bool(cfg.get("hflip", True)), color_jitter=float(cfg.get("color_jitter", 0.2)))
+    train_ds = ManifestDetDataset(df[df["split"].str.strip() == _SPLIT_TRAIN], vocab, train=True, **ds_kw)
+    val_ds = ManifestDetDataset(df[df["split"].str.strip() == _SPLIT_VAL], vocab, train=False, **ds_kw)
     print(f"train={len(train_ds)} (dropped {train_ds.dropped_off_vocab}) "
           f"valid={len(val_ds)} | imgsz={imgsz} device={device.type}")
     if len(train_ds) == 0:
@@ -184,7 +247,7 @@ def main(argv=None):
         val_ds, batch_size=batch, shuffle=False, num_workers=workers, pin_memory=pin,
         collate_fn=det_collate_fn)
 
-    optimizer = build_optimizer(cfg, model)
+    optimizer = build_det_optimizer(cfg, model)
     scheduler = build_scheduler(cfg, optimizer)
     scaler = torch.amp.GradScaler("cuda", enabled=use_scaler)
     grad_accum = max(int(cfg.get("grad_accum_steps", 1)), 1)
@@ -202,12 +265,17 @@ def main(argv=None):
             "box_label_source": box_label_config.source,
             "box_class_maps": box_label_config.class_maps,
             "unknown_box_class_policy": box_label_config.unknown_policy,
-            "class_agnostic_label": box_label_config.class_agnostic_label}
+            "class_agnostic_label": box_label_config.class_agnostic_label,
+            "pretrained_detr": cfg.get("pretrained_detr", "facebook/detr-resnet-50"),
+            "letterbox": bool(cfg.get("letterbox", True))}
     (out_dir / "meta.json").write_text(json.dumps(meta, indent=2))
     metrics_path = out_dir / "metrics.jsonl"
     if metrics_path.exists():
         metrics_path.unlink()
     wb = wandb_setup(cfg, cfg.get("wandb_name") or run_name, out_dir)
+
+    if int(cfg.get("debug_boxes", 0) or 0) > 0:
+        dump_box_overlays(train_ds, out_dir, int(cfg["debug_boxes"]), mean, std)
 
     def save_ckpt(tag, m, epoch):
         dest = out_dir / f"{tag}.pt"

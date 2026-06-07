@@ -86,7 +86,8 @@ def main(argv=None):
     box_label_config = _box_label_config_from_meta(meta, cfg)
     model, _ = build_detector(len(vocab), meta["arch"], quantize=meta.get("quantize", "none"),
                               lora=bool(meta.get("lora", True)), compute_dtype=compute_dtype,
-                              num_queries=int(meta.get("num_queries", 100)), imgsz=meta["imgsz"])
+                              num_queries=int(meta.get("num_queries", 100)), imgsz=meta["imgsz"],
+                              pretrained_detr=None)  # trained weights are loaded next; skip COCO warm-start
     model.load_state_dict(ckpt["model"], strict=False)
     is_quant = str(meta.get("quantize", "none")).lower() == "4bit"
     if not is_quant:
@@ -104,7 +105,8 @@ def main(argv=None):
         image_root=cfg.get("image_root", "s3://datastoraged4gen/02_PROCESSED"),
         imgsz=int(meta["imgsz"]), cache_dir=cfg.get("cache_dir"),
         mean=tuple(meta["mean"]), std=tuple(meta["std"]),
-        box_label_config=box_label_config)
+        box_label_config=box_label_config,
+        train=False, letterbox=bool(cfg.get("letterbox", meta.get("letterbox", True))))
     print(f"test={len(test_ds)} rows (dropped {test_ds.dropped_off_vocab})")
     if len(test_ds) == 0:
         raise SystemExit("No test rows — check manifest split/filters.")

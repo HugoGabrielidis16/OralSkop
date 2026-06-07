@@ -30,14 +30,24 @@ lora_r: 16
 lora_alpha: 32
 lora_dropout: 0.05
 grad_checkpointing: true
-num_queries: 100              # DETR object queries (upper bound on boxes/image)
+num_queries: 100              # DETR object queries (reuses the warm-start's query embeddings)
 imgsz: 518                    # DINOv2 native (multiple of 14)
+# Warm-start the (otherwise random) DETR transformer + box head from COCO so it converges in
+# tens of epochs instead of 300-500. null trains the transformer from scratch.
+pretrained_detr: facebook/detr-resnet-50
+
+# --- data augmentation ------------------------------------------------------
+augment: true                 # random train-time aug (hflip + photometric); off for val/test
+letterbox: true               # aspect-preserving resize+pad (vs square squash that distorts)
+hflip: true                   # horizontal flip (boxes flipped cx -> 1 - cx)
+color_jitter: 0.2             # brightness/contrast/saturation jitter (boxes unaffected)
 
 # --- training ---------------------------------------------------------------
-epochs: 50                    # DETR converges slowly — give it epochs
+epochs: 50                    # warm-started DETR; expect non-trivial mAP within ~10 epochs
 batch: 4
 grad_accum_steps: 8           # effective batch 32
-lr: 0.0001
+lr: 0.0001                    # DETR transformer + heads
+backbone_lr: 0.00001          # lower LR for the DINOv2 (LoRA) backbone; null -> lr * 0.1
 weight_decay: 0.0001
 optimizer: paged_adamw8bit    # 8-bit paged optimizer (bitsandbytes)
 scheduler: cosine
@@ -48,6 +58,7 @@ amp: true                     # bf16 on A10 (auto); fp16 fallback on T4
 seed: 42
 eval_score_threshold: 0.0     # keep all preds for mAP ranking
 eval_match_score_threshold: 0.5  # thresholded precision/recall/F1/IoU/class-accuracy metrics
+debug_boxes: 0                # >0: dump N GT box-overlay images to out_dir/debug_boxes/ once
 
 # --- logging / output -------------------------------------------------------
 progress: true
