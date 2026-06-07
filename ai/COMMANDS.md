@@ -354,6 +354,41 @@ for the heavy class imbalance — doc §7.4). Uses the manifest's own `split` co
 micro-classes. Reports **macro-mAP / micro-AP / macro-F1**; saves `best.pt` / `last.pt` /
 `vocab.json` / `metrics.jsonl` to `runs/clf/<name>/`.
 
+### QLoRA fine-tuning of a foundation model (DINOv2-large)
+
+The same path can fine-tune a HuggingFace foundation model with **QLoRA** for a small
+memory footprint: a 4-bit NF4 base (frozen) + LoRA adapters + a trainable multi-label
+head, an **8-bit paged optimizer**, **gradient checkpointing**, and **gradient
+accumulation**. Tuned for an A10G (~24 GB); needs CUDA (bitsandbytes).
+
+```bash
+# Extra deps (transformers + peft + bitsandbytes + accelerate) — CUDA only
+uv sync --extra clf --extra qlora
+
+# Smoke test in the GPU notebook (a few rows, one epoch)
+uv run --extra clf --extra qlora python -m oralskop.clf.train \
+    --config configs/clf/qlora_dinov2.yaml \
+    --override image_root=datasets/02_PROCESSED limit=128 epochs=1 batch=4 \
+              grad_accum_steps=1 wandb=false
+
+# Real run (DINOv2-large, imgsz 518, batch 16 x accum 2, W&B)
+uv run --extra clf --extra qlora --extra wandb python -m oralskop.clf.train \
+    --config configs/clf/qlora_dinov2.yaml --override image_root=datasets/02_PROCESSED
+
+# Evaluate (point --weights at the run dir; it loads adapter_best + meta.json)
+uv run --extra clf --extra qlora python -m oralskop.clf.eval \
+    --config configs/clf/qlora_dinov2.yaml \
+    --weights runs/clf/clf_coarse_dinov2_large_qlora
+```
+
+Key config (`configs/clf/qlora_dinov2.yaml`): `arch` (`dinov2_large` / `dinov2_base` /
+`vit_large_384` / `hf:<model_id>`), `quantize` (`4bit`/`8bit`/`none`), `lora` + `lora_r` /
+`lora_alpha` / `lora_dropout`, `grad_checkpointing`, `grad_accum_steps`,
+`optimizer: paged_adamw8bit`, `imgsz` (518 native for DINOv2). Normalization/size come
+from the model's image processor; bf16 auto-selected on A10/A100 (fp16 on T4). Saves LoRA
+**`adapter_best/` / `adapter_last/` + `meta.json`** (not a full `.pt`); the
+"Model saved [tag] … with metrics" line prints on every checkpoint.
+
 ---
 
 ## 4. Run on the cluster (SLURM + Apptainer)

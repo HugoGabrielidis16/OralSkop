@@ -29,7 +29,7 @@ from oralskop.clf.dataset import (
     pos_weight_from,
 )
 from oralskop.clf.metrics import format_per_class, multilabel_metrics
-from oralskop.clf.model import build_classifier
+from oralskop.clf.model import build_model
 from oralskop.clf.vocab import build_vocab
 
 # Manifest split names (doc §2) — note "valid", not "val".
@@ -38,18 +38,38 @@ _SPLIT_VAL = "valid"
 
 
 def build_optimizer(cfg: dict, model: torch.nn.Module) -> torch.optim.Optimizer:
-    """AdamW (default) or SGD — mirrors oralskop.torchseg.train.build_optimizer."""
-    name = str(cfg.get("optimizer", "adamw")).lower()
+    """AdamW / SGD / 8-bit (paged) AdamW over the trainable params.
+
+    Optimizing only ``requires_grad`` params means a QLoRA run updates just the LoRA
+    adapters + head (the 4-bit base is frozen).
+    """
+    name = str(cfg.get("optimizer", "adamw")).lower().replace("-", "_")
     lr = cfg.get("lr", 3e-4)
     weight_decay = cfg.get("weight_decay", 0.05)
+    params = [p for p in model.parameters() if p.requires_grad]
     if name == "adamw":
-        return torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+        return torch.optim.AdamW(params, lr=lr, weight_decay=weight_decay)
     if name == "sgd":
         return torch.optim.SGD(
-            model.parameters(), lr=lr, momentum=cfg.get("momentum", 0.9),
+            params, lr=lr, momentum=cfg.get("momentum", 0.9),
             weight_decay=weight_decay, nesterov=bool(cfg.get("nesterov", False)),
         )
-    raise ValueError(f"Unknown optimizer {name!r}. Options: adamw, sgd")
+    if name in {"adamw8bit", "paged_adamw8bit", "adamw_8bit", "paged_adamw_8bit"}:
+        try:
+            import bitsandbytes as bnb
+        except ImportError as exc:  # pragma: no cover - env-dependent
+            raise ImportError("8-bit optimizers need the `qlora` extra (bitsandbytes): "
+                              "uv sync --extra qlora.") from exc
+        Opt = bnb.optim.PagedAdamW8bit if "paged" in name else bnb.optim.AdamW8bit
+        return Opt(params, lr=lr, weight_decay=weight_decay)
+    raise ValueError(f"Unknown optimizer {name!r}. Options: adamw, sgd, adamw8bit, paged_adamw8bit")
+
+
+def forward_logits(model, imgs, is_hf: bool):
+    """Uniform forward: HF image models return ``.logits``; torchvision returns logits."""
+    if is_hf:
+        return model(pixel_values=imgs).logits
+    return model(imgs)
 
 
 def build_scheduler(cfg: dict, optimizer: torch.optim.Optimizer):
@@ -231,6 +251,8 @@ def collect_scores(
     criterion=None,
     threshold: float = 0.5,
     use_amp: bool = False,
+    amp_dtype=torch.float16,
+    is_hf: bool = False,
     return_stats: bool = False,
 ):
     """Run the model over a loader -> (y_true, y_score) numpy arrays [N, C]."""
@@ -248,8 +270,8 @@ def collect_scores(
     for imgs, targets in batches:
         imgs = imgs.to(device)
         targets_device = targets.to(device)
-        with torch.amp.autocast("cuda", enabled=use_amp):
-            logits = model(imgs)
+        with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=use_amp):
+            logits = forward_logits(model, imgs, is_hf).float()
             loss = criterion(logits, targets_device) if criterion is not None else None
         loss_value = float(loss.detach()) if loss is not None else None
         _update_running_stats(
@@ -297,6 +319,12 @@ def main(argv: list[str] | None = None) -> None:
     torch.manual_seed(cfg.get("seed", 42))
     np.random.seed(cfg.get("seed", 42))
 
+    # Precision: bf16 where supported (A10/A100), else fp16. GradScaler only for fp16.
+    use_amp = bool(cfg.get("amp", True)) and device.type == "cuda"
+    amp_dtype = torch.bfloat16 if (use_amp and torch.cuda.is_bf16_supported()) else torch.float16
+    compute_dtype = amp_dtype if device.type == "cuda" else torch.float32
+    use_scaler = use_amp and amp_dtype == torch.float16
+
     level = cfg.get("level", "coarse")
     df, labels_per_row = load_supervised_frame(
         cfg["manifest"], level,
@@ -311,18 +339,24 @@ def main(argv: list[str] | None = None) -> None:
     print(f"Level={level}: {num_classes} classes | supervised rows={len(df)} "
           f"| vocab from {'file' if cfg.get('labels_file') else 'manifest'}")
 
+    # Build the model first so preprocessing (normalization + input size) comes from it
+    # (torchvision -> ImageNet/imgsz; foundation -> its own image processor).
+    model, preprocess, is_hf = build_model(num_classes, cfg, compute_dtype=compute_dtype)
+    quantized = is_hf and str(cfg.get("quantize", "4bit")).lower() in {"4bit", "8bit"}
+    if not quantized:  # 4-bit/8-bit weights are placed on GPU by bitsandbytes — don't .to()
+        model = model.to(device)
+    imgsz = int(preprocess["imgsz"])
+    mean, std = preprocess["mean"], preprocess["std"]
+
     image_root = cfg.get("image_root", "s3://datastoraged4gen/02_PROCESSED")
-    imgsz = int(cfg.get("imgsz", 224))
     cache_dir = cfg.get("cache_dir")
     unreadable_log_limit = int(cfg.get("unreadable_log_limit", 0) or 0)
+    ds_kw = dict(image_root=image_root, imgsz=imgsz, cache_dir=cache_dir, mean=mean, std=std,
+                 unreadable_log_limit=unreadable_log_limit)
     train_ds = ManifestClfDataset(df[df["split"].str.strip() == _SPLIT_TRAIN], vocab,
-                                  image_root=image_root, imgsz=imgsz, train=True,
-                                  cache_dir=cache_dir,
-                                  unreadable_log_limit=unreadable_log_limit)
+                                  train=True, **ds_kw)
     val_ds = ManifestClfDataset(df[df["split"].str.strip() == _SPLIT_VAL], vocab,
-                                image_root=image_root, imgsz=imgsz, train=False,
-                                cache_dir=cache_dir,
-                                unreadable_log_limit=unreadable_log_limit)
+                                train=False, **ds_kw)
     print(f"train={len(train_ds)} (dropped {train_ds.dropped_empty} off-vocab) "
           f"valid={len(val_ds)} (dropped {val_ds.dropped_empty}) | device={device.type}")
     if len(train_ds) == 0:
@@ -336,8 +370,6 @@ def main(argv: list[str] | None = None) -> None:
     val_loader = torch.utils.data.DataLoader(
         val_ds, batch_size=cfg.get("batch", 64), shuffle=False, num_workers=workers, pin_memory=pin)
 
-    model = build_classifier(num_classes, arch=cfg.get("arch", "convnext_tiny"),
-                             pretrained=bool(cfg.get("pretrained", True))).to(device)
     model_params, trainable_params = _model_param_counts(model)
     cfg["model_params"] = model_params
     cfg["trainable_params"] = trainable_params
@@ -353,14 +385,22 @@ def main(argv: list[str] | None = None) -> None:
 
     optimizer = build_optimizer(cfg, model)
     scheduler = build_scheduler(cfg, optimizer)
-    use_amp = bool(cfg.get("amp", True)) and device.type == "cuda"
-    scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
+    scaler = torch.amp.GradScaler("cuda", enabled=use_scaler)
+    grad_accum = max(int(cfg.get("grad_accum_steps", 1)), 1)
 
     run_name = cfg.get("name", f"clf_{level}")
     out_dir = resolve_run_dir((AI_ROOT / cfg.get("out_dir", "runs/clf")).resolve(), run_name,
                               bool(cfg.get("exist_ok", False)))
     out_dir.mkdir(parents=True, exist_ok=True)
     vocab.to_json(out_dir / "vocab.json")
+    meta = {"is_hf": is_hf, "arch": cfg.get("arch", "convnext_tiny"),
+            "model_id": preprocess.get("model_id"), "num_classes": num_classes,
+            "class_names": vocab.names, "level": level, "imgsz": imgsz,
+            "mean": list(mean), "std": list(std),
+            "quantize": cfg.get("quantize", "4bit") if is_hf else None,
+            "lora": bool(cfg.get("lora", True)) if is_hf else False,
+            "lora_r": cfg.get("lora_r", 16), "lora_alpha": cfg.get("lora_alpha", 32)}
+    (out_dir / "meta.json").write_text(json.dumps(meta, indent=2))
     metrics_path = out_dir / "metrics.jsonl"
     if metrics_path.exists():
         metrics_path.unlink()
@@ -380,6 +420,23 @@ def main(argv: list[str] | None = None) -> None:
     progress_leave = bool(cfg.get("progress_leave", True))
     log_interval = int(cfg.get("log_interval", 50) or 0)
     best_map = -1.0
+
+    def save_ckpt(tag: str, m: dict | None, epoch: int) -> None:
+        if is_hf:  # save LoRA adapters + head (not the frozen 4-bit base)
+            dest = out_dir / f"adapter_{tag}"
+            model.save_pretrained(str(dest))
+        else:
+            dest = out_dir / f"{tag}.pt"
+            torch.save({"model": model.state_dict(), "arch": cfg.get("arch", "convnext_tiny"),
+                        "num_classes": num_classes, "class_names": vocab.names, "level": level,
+                        "imgsz": imgsz, "mean": list(mean), "std": list(std),
+                        "epoch": epoch, "metrics": m}, dest)
+        if m is not None:
+            summary = (f"macro_mAP {m['macro_map']:.4f}, micro_AP {m['micro_ap']:.4f}, "
+                       f"macro_F1 {m['macro_f1']:.4f}, micro_F1 {m['micro_f1']:.4f}")
+        else:
+            summary = "no validation metrics (empty val split)"
+        tqdm.write(f">> Model saved [{tag}] epoch {epoch} with metrics: {summary} -> {dest}")
     print(f"Model params: total={model_params:,} trainable={trainable_params:,}")
     if cfg.get("wandb", False):
         print(f"W&B run name: {wandb_run_name}")
@@ -396,15 +453,21 @@ def main(argv: list[str] | None = None) -> None:
             dynamic_ncols=True,
             disable=not progress,
         )
+        optimizer.zero_grad(set_to_none=True)
+        step = 0
         for step, (imgs, targets) in enumerate(train_batches, 1):
             imgs, targets = imgs.to(device), targets.to(device)
-            optimizer.zero_grad()
-            with torch.amp.autocast("cuda", enabled=use_amp):
-                logits = model(imgs)
+            with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=use_amp):
+                logits = forward_logits(model, imgs, is_hf).float()
                 loss = criterion(logits, targets)
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
+            scaled = loss / grad_accum
+            (scaler.scale(scaled) if use_scaler else scaled).backward()
+            if step % grad_accum == 0:
+                if use_scaler:
+                    scaler.step(optimizer); scaler.update()
+                else:
+                    optimizer.step()
+                optimizer.zero_grad(set_to_none=True)
             batch_loss = float(loss.detach())
             _update_running_stats(
                 train_stats,
@@ -432,6 +495,12 @@ def main(argv: list[str] | None = None) -> None:
                     f"exact {train_summary['exact_match_accuracy']:.4f} "
                     f"lr {lr:.2e} elapsed {time.time() - t0:.0f}s"
                 )
+        if step % grad_accum != 0:  # flush trailing partial accumulation
+            if use_scaler:
+                scaler.step(optimizer); scaler.update()
+            else:
+                optimizer.step()
+            optimizer.zero_grad(set_to_none=True)
         train_summary = _running_summary(train_stats)
         train_loss = train_summary["loss"]
 
@@ -452,6 +521,8 @@ def main(argv: list[str] | None = None) -> None:
                 criterion=criterion,
                 threshold=threshold,
                 use_amp=use_amp,
+                amp_dtype=amp_dtype,
+                is_hf=is_hf,
                 return_stats=True,
             )
             m = multilabel_metrics(y_true, y_score, vocab.names, threshold=threshold)
@@ -479,13 +550,10 @@ def main(argv: list[str] | None = None) -> None:
         with metrics_path.open("a") as f:
             f.write(json.dumps(record) + "\n")
 
-        ckpt = {"model": model.state_dict(), "arch": cfg.get("arch", "convnext_tiny"),
-                "num_classes": num_classes, "class_names": vocab.names, "level": level,
-                "imgsz": imgsz, "epoch": epoch, "metrics": m}
-        torch.save(ckpt, out_dir / "last.pt")
+        save_ckpt("last", m, epoch)
         if m is not None and m["macro_map"] == m["macro_map"] and m["macro_map"] > best_map:
             best_map = m["macro_map"]
-            torch.save(ckpt, out_dir / "best.pt")
+            save_ckpt("best", m, epoch)
             line += "  *best*"
 
         if scheduler is not None:

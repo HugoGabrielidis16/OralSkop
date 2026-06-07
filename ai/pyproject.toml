@@ -52,6 +52,15 @@ explore = [
     "peft>=0.11",
     "timm>=0.9",
 ]
+# QLoRA fine-tuning of foundation models (oralskop.clf with arch=dinov2_large etc.).
+# bitsandbytes is CUDA/Linux-only (installs on the SageMaker GPU box, not on mac/CPU):
+#   uv sync --extra clf --extra qlora
+qlora = [
+    "transformers>=4.44",
+    "peft>=0.11",
+    "bitsandbytes>=0.43",
+    "accelerate>=0.30",
+]
 
 [project.scripts]
 oralskop-prepare = "oralskop.cli:prepare_main"
