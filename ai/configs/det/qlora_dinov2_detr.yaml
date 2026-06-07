@@ -1,0 +1,52 @@
+# DINOv2-backbone DETR object detector on the manifest bbox subset.
+# Install: uv sync --extra clf --extra qlora --extra det [--extra wandb]
+#   uv run --extra clf --extra qlora --extra det python -m oralskop.det.train \
+#       --config configs/det/qlora_dinov2_detr.yaml --override image_root=datasets/02_PROCESSED
+
+# --- data -------------------------------------------------------------------
+manifest: manifest_03_master_FINAL.csv
+image_root: datasets/02_PROCESSED          # local (download_data.py --with-labels) or s3://...
+level: coarse
+labels_file: configs/clf/labels_coarse.yaml
+exclude_train_only_microclasses: true
+image_path_prefixes: null
+cache_dir: null
+limit: null
+
+# --- model (DINOv2 backbone + DETR head) -----------------------------------
+arch: dinov2_base             # dinov2_small | dinov2_base | dinov2_large | hf:<id>
+quantize: none                # none (bf16 LoRA, recommended) | 4bit (QLoRA, experimental)
+lora: true                    # LoRA on the DINOv2 backbone; DETR head trained full-precision
+lora_r: 16
+lora_alpha: 32
+lora_dropout: 0.05
+grad_checkpointing: true
+num_queries: 100              # DETR object queries (upper bound on boxes/image)
+imgsz: 518                    # DINOv2 native (multiple of 14)
+
+# --- training ---------------------------------------------------------------
+epochs: 50                    # DETR converges slowly — give it epochs
+batch: 4
+grad_accum_steps: 8           # effective batch 32
+lr: 0.0001
+weight_decay: 0.0001
+optimizer: paged_adamw8bit    # 8-bit paged optimizer (bitsandbytes)
+scheduler: cosine
+warmup_epochs: 2
+num_workers: 4
+device: cuda
+amp: true                     # bf16 on A10 (auto); fp16 fallback on T4
+seed: 42
+eval_score_threshold: 0.0     # keep all preds for mAP ranking
+
+# --- logging / output -------------------------------------------------------
+progress: true
+progress_leave: true
+log_interval: 25
+unreadable_log_limit: 0
+out_dir: runs/det
+name: det_coarse_dinov2_detr_qlora
+exist_ok: false
+wandb: true
+wandb_name: null
+wandb_project: oralskop-det

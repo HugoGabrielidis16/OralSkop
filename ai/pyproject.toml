@@ -61,6 +61,14 @@ qlora = [
     "bitsandbytes>=0.43",
     "accelerate>=0.30",
 ]
+# Object detection (oralskop.det: DINOv2-backbone DETR). Uses the qlora extra for
+# transformers/peft; adds detection mAP + DETR backbone deps:
+#   uv sync --extra clf --extra qlora --extra det
+det = [
+    "torchmetrics>=1.0",
+    "pycocotools>=2.0",
+    "timm>=0.9",
+]
 
 [project.scripts]
 oralskop-prepare = "oralskop.cli:prepare_main"
@@ -75,6 +83,8 @@ oralskop-yolo-semantic = "oralskop.bench.semantic_from_yolo:main"
 oralskop-serve = "oralskop.serve.app:main"
 oralskop-train-clf = "oralskop.clf.train:main"
 oralskop-eval-clf = "oralskop.clf.eval:main"
+oralskop-train-det = "oralskop.det.train:main"
+oralskop-eval-det = "oralskop.det.eval:main"
 
 [build-system]
 requires = ["hatchling"]

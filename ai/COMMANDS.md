@@ -391,6 +391,46 @@ from the model's image processor; bf16 auto-selected on A10/A100 (fp16 on T4). S
 
 ---
 
+## 3f. Object detection (DINOv2 + DETR, manifest bbox subset)
+
+`oralskop.det` trains a **DINOv2-backbone DETR** detector on the manifest's `yolo-bbox`
+rows (~15.7k single-condition images). Each box is assigned its image's `canonical_coarse`
+class (weak multi-class). The DINOv2 backbone is adapted with **LoRA** (bf16 by default;
+`quantize=4bit` for experimental QLoRA); the DETR head trains full-precision, and HF
+computes the set-prediction loss. Reports detection **mAP**. CUDA only.
+
+```bash
+# Deps (transformers/peft via qlora; torchmetrics/pycocotools/timm via det)
+uv sync --extra clf --extra qlora --extra det
+
+# Get the bbox images AND their .txt labels locally (or stream from s3://)
+python scripts/download_data.py --with-labels --prefixes CARIES/ MULTI/ mouth_detection/
+
+# Smoke test in the GPU notebook
+uv run --extra clf --extra qlora --extra det python -m oralskop.det.train \
+    --config configs/det/qlora_dinov2_detr.yaml \
+    --override image_root=datasets/02_PROCESSED limit=64 epochs=1 batch=2 \
+              grad_accum_steps=1 wandb=false name=det_smoke
+
+# Real run (DINOv2-base backbone, imgsz 518, ~50 epochs — DETR converges slowly)
+uv run --extra clf --extra qlora --extra det --extra wandb python -m oralskop.det.train \
+    --config configs/det/qlora_dinov2_detr.yaml --override image_root=datasets/02_PROCESSED
+
+# Evaluate (test mAP + per-class AP)
+uv run --extra clf --extra qlora --extra det python -m oralskop.det.eval \
+    --config configs/det/qlora_dinov2_detr.yaml \
+    --weights runs/det/det_coarse_dinov2_detr_qlora/best.pt
+```
+
+Key config (`configs/det/qlora_dinov2_detr.yaml`): `arch` (`dinov2_small`/`base`/`large`
+or `hf:<id>`), `quantize` (`none` bf16 — recommended — / `4bit` experimental), `lora_*`,
+`num_queries` (max boxes/image), `imgsz` (518), `optimizer: paged_adamw8bit`,
+`grad_accum_steps`. Saves a full `best.pt`/`last.pt` + `meta.json` to `runs/det/<name>/`.
+Caveats: DETR is slow to converge (start at base, ~50 epochs, expect modest early mAP);
+box labels are weak (image-level → every box gets the image's condition).
+
+---
+
 ## 4. Run on the cluster (SLURM + Apptainer)
 
 ```bash

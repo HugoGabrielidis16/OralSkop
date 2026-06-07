@@ -71,6 +71,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Also download unlabelled pretrain images (default: supervised only).",
     )
     p.add_argument(
+        "--with-labels",
+        action="store_true",
+        help="Also download the yolo-bbox .txt label files (for oralskop.det detection).",
+    )
+    p.add_argument(
         "--prefixes",
         nargs="+",
         metavar="PREFIX",
@@ -166,6 +171,24 @@ def select_image_paths(
     return paths
 
 
+def select_label_paths(manifest_path: Path, *, prefixes: list[str] | None, limit: int | None) -> list[str]:
+    """Unique yolo-bbox ``.txt`` label paths (for the detection subset)."""
+    import pandas as pd
+
+    df = pd.read_csv(manifest_path, usecols=["image_path", "label_path", "split", "annotation_format"],
+                     dtype=str, keep_default_na=False)
+    df = df[df["annotation_format"].str.contains("yolo-bbox")
+            & df["label_path"].str.strip().str.endswith(".txt")
+            & (df["split"].str.strip() != _PRETRAIN_SPLIT)]
+    if prefixes:
+        normalized = tuple(p.lstrip("/") for p in prefixes)
+        df = df[df["image_path"].str.lstrip("/").str.startswith(normalized)]
+    paths = sorted(dict.fromkeys(p.lstrip("/") for p in df["label_path"] if p.strip()))
+    if limit:
+        paths = paths[: int(limit)]
+    return paths
+
+
 def make_key(src_prefix: str, rel: str) -> str:
     prefix = src_prefix.strip("/")
     rel = rel.lstrip("/")
@@ -193,14 +216,21 @@ def main(argv: list[str] | None = None) -> None:
         limit=args.limit,
     )
 
+    label_paths = []
+    if args.with_labels:
+        label_paths = select_label_paths(manifest_path, prefixes=args.prefixes, limit=args.limit)
+        paths = paths + label_paths  # same root; fetch() handles both image + label rels
+
     selection = "all incl. pretrain" if args.all else "supervised only"
     if args.prefixes:
         selection += f", prefixes={args.prefixes}"
     if args.limit:
         selection += f", limit={args.limit}"
+    if args.with_labels:
+        selection += f", +{len(label_paths)} bbox label files"
 
     print(f">> Manifest: {manifest_path}")
-    print(f">> Selected: {len(paths)} images ({selection})")
+    print(f">> Selected: {len(paths)} files ({selection})")
     print(f">> Source  : s3://{args.bucket}/{src_prefix}/<image_path>")
     print(f">> Dest    : {dest_root}/<image_path>")
 
