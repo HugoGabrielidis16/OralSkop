@@ -112,13 +112,17 @@ def build_foundation_model(
 
     quant = (quantize or "none").lower()
     bnb_config = None
+    # Keep the freshly-initialized classification head OUT of quantization — it is the
+    # trainable multi-label head (also in LoRA's modules_to_save). Quantizing it makes
+    # peft clone a 4-bit Linear, which fails bitsandbytes' quant-state check on forward.
     if quant == "4bit":
         bnb_config = BitsAndBytesConfig(
             load_in_4bit=True, bnb_4bit_quant_type="nf4",
             bnb_4bit_use_double_quant=True, bnb_4bit_compute_dtype=compute_dtype,
+            llm_int8_skip_modules=["classifier"],
         )
     elif quant == "8bit":
-        bnb_config = BitsAndBytesConfig(load_in_8bit=True)
+        bnb_config = BitsAndBytesConfig(load_in_8bit=True, llm_int8_skip_modules=["classifier"])
     elif quant not in {"none", "no", "false"}:
         raise ValueError(f"Unknown quantize {quantize!r}. Options: 4bit, 8bit, none.")
 
