@@ -1,5 +1,5 @@
 import uuid
-from fastapi import APIRouter, Depends, File, UploadFile, HTTPException
+from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Response
 
 from dependencies import get_current_user_id
 from services.ai_client import analyze_image
@@ -76,3 +76,26 @@ async def create_screening(
             for d in result["detections"]
         ],
     }
+
+
+@router.delete("/screenings/{screening_id}", status_code=204)
+async def delete_screening(
+    screening_id: str,
+    user_id: str = Depends(get_current_user_id),
+):
+    db = get_db()
+
+    resp = (
+        db.table("screenings")
+        .select("screening_id")
+        .eq("screening_id", screening_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    if not resp.data:
+        raise HTTPException(status_code=404, detail="Screening not found")
+
+    db.table("detections").delete().eq("screening_id", screening_id).execute()
+    db.table("screenings").delete().eq("screening_id", screening_id).execute()
+
+    return Response(status_code=204)
