@@ -38,6 +38,7 @@ device: cuda
 amp: true                     # bf16 on A10 (auto); fp16 fallback on T4
 seed: 42
 eval_score_threshold: 0.0     # keep all preds for mAP ranking
+eval_match_score_threshold: 0.5  # thresholded precision/recall/F1/IoU/class-accuracy metrics
 
 # --- logging / output -------------------------------------------------------
 progress: true

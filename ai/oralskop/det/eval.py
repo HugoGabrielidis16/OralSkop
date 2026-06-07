@@ -82,9 +82,15 @@ def main(argv=None):
     processor = build_detr_processor()
     m = evaluate_map(model, loader, device, processor, int(meta["imgsz"]), is_quant=is_quant,
                      amp_dtype=amp_dtype, use_amp=use_amp, class_names=vocab.names,
-                     score_threshold=float(cfg.get("eval_score_threshold", 0.0)), desc="test")
+                     score_threshold=float(cfg.get("eval_score_threshold", 0.0)),
+                     match_score_threshold=float(cfg.get("eval_match_score_threshold", 0.5)),
+                     desc="test")
     print(f"\n== test ==  mAP {m['map']:.4f}  mAP50 {m['map_50']:.4f}  "
           f"mAP75 {m['map_75']:.4f}  mAR100 {m['mar_100']:.4f}")
+    print(f"threshold {m['match_score_threshold']:.2f}  precision50 {m['precision_50']:.4f}  "
+          f"recall50 {m['recall_50']:.4f}  F1_50 {m['f1_50']:.4f}  "
+          f"mean_iou50 {m['mean_iou_50']:.4f}  "
+          f"matched_class_accuracy50 {m['matched_class_accuracy_50']:.4f}")
     print(format_per_class(m))
 
 
