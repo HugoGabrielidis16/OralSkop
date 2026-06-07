@@ -47,11 +47,13 @@ def _cxcywh_norm_to_xyxy_abs(boxes: torch.Tensor, size: int) -> torch.Tensor:
 
 @torch.no_grad()
 def evaluate_map(model, loader, device, processor, imgsz, *, is_quant, amp_dtype, use_amp,
-                 class_names, score_threshold=0.0, desc="val", progress=True):
+                 class_names, score_threshold=0.0, desc="val", progress=True, leave=False):
     """Run the detector over a loader and return a summarized mAP dict."""
     model.eval()
     metric = new_map_metric(class_metrics=True)
-    for imgs, targets in tqdm(loader, desc=desc, leave=False, disable=not progress):
+    bar = tqdm(loader, desc=desc, leave=leave, dynamic_ncols=True, disable=not progress)
+    total_imgs, total_preds, total_targets = 0, 0, 0
+    for imgs, targets in bar:
         imgs = imgs.to(device)
         with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=use_amp):
             outputs = model(pixel_values=imgs)
@@ -62,6 +64,11 @@ def evaluate_map(model, loader, device, processor, imgsz, *, is_quant, amp_dtype
         tgts = [{"boxes": _cxcywh_norm_to_xyxy_abs(t["boxes"].cpu().float(), imgsz),
                  "labels": t["class_labels"].cpu()} for t in targets]
         metric.update(preds, tgts)
+        total_imgs += imgs.shape[0]
+        total_preds += sum(len(p["boxes"]) for p in preds)
+        total_targets += sum(len(t["boxes"]) for t in tgts)
+        if progress:
+            bar.set_postfix(imgs=total_imgs, preds=total_preds, targets=total_targets)
     return summarize_map(metric.compute(), class_names)
 
 
@@ -163,6 +170,7 @@ def main(argv=None):
     progress = bool(cfg.get("progress", True))
     progress_leave = bool(cfg.get("progress_leave", True))
     log_interval = int(cfg.get("log_interval", 50) or 0)
+    wandb_log_interval = int(cfg.get("wandb_log_interval", log_interval) or 0)
     best_map = -1.0
     print(f"Training {arch}-DETR for {epochs} epochs (batch {batch} x accum {grad_accum}) -> {out_dir}")
 
@@ -171,7 +179,8 @@ def main(argv=None):
         model.train()
         loss_sum, n = 0.0, 0
         optimizer.zero_grad(set_to_none=True)
-        bar = tqdm(train_loader, desc=f"epoch {epoch}/{epochs}", leave=progress_leave, disable=not progress)
+        bar = tqdm(train_loader, desc=f"epoch {epoch}/{epochs}", leave=progress_leave,
+                   dynamic_ncols=True, disable=not progress)
         step = 0
         for step, (imgs, targets) in enumerate(bar, 1):
             imgs = imgs.to(device)
@@ -186,13 +195,33 @@ def main(argv=None):
                 else:
                     optimizer.step()
                 optimizer.zero_grad(set_to_none=True)
-            loss_sum += float(loss.detach()) * imgs.shape[0]
+            batch_loss = float(loss.detach())
+            loss_sum += batch_loss * imgs.shape[0]
             n += imgs.shape[0]
+            running_loss = loss_sum / max(n, 1)
+            lr = optimizer.param_groups[0]["lr"]
+            elapsed = time.time() - t0
+            samples_per_sec = n / max(elapsed, 1e-9)
             if progress:
-                bar.set_postfix(loss=f"{loss_sum/max(n,1):.4f}", lr=f"{optimizer.param_groups[0]['lr']:.2e}")
-            if log_interval and (step == 1 or step % log_interval == 0):
+                bar.set_postfix(loss=f"{running_loss:.4f}", batch=f"{batch_loss:.4f}",
+                                lr=f"{lr:.2e}", ips=f"{samples_per_sec:.1f}")
+            should_log = log_interval and (step == 1 or step % log_interval == 0 or step == len(train_loader))
+            if should_log:
                 tqdm.write(f"epoch {epoch} batch {step}/{len(train_loader)} "
-                           f"loss {loss_sum/max(n,1):.4f} ({time.time()-t0:.0f}s)")
+                           f"loss {running_loss:.4f} batch_loss {batch_loss:.4f} "
+                           f"lr {lr:.2e} imgs/s {samples_per_sec:.1f} "
+                           f"progress {step/len(train_loader):.1%} elapsed {elapsed:.0f}s")
+            if wb is not None and wandb_log_interval and (
+                step == 1 or step % wandb_log_interval == 0 or step == len(train_loader)
+            ):
+                wb.log({
+                    "train/batch_loss": batch_loss,
+                    "train/running_loss": running_loss,
+                    "train/samples_per_sec": samples_per_sec,
+                    "train/epoch_progress": step / len(train_loader),
+                    "lr": lr,
+                    "epoch": epoch,
+                })
         if step % grad_accum != 0:
             if use_scaler:
                 scaler.step(optimizer); scaler.update()
@@ -207,7 +236,7 @@ def main(argv=None):
             m = evaluate_map(model, val_loader, device, processor, imgsz, is_quant=is_quant,
                              amp_dtype=amp_dtype, use_amp=use_amp, class_names=vocab.names,
                              score_threshold=float(cfg.get("eval_score_threshold", 0.0)),
-                             desc=f"val {epoch}", progress=progress)
+                             desc=f"val {epoch}", progress=progress, leave=progress_leave)
             line += f"  mAP {m['map']:.4f}  mAP50 {m['map_50']:.4f}  mAR100 {m['mar_100']:.4f}"
 
         record = {"epoch": epoch, "train_loss": train_loss, "lr": optimizer.param_groups[0]["lr"]}
@@ -230,7 +259,8 @@ def main(argv=None):
             log = {"train/loss": train_loss, "lr": optimizer.param_groups[0]["lr"]}
             if m is not None:
                 log.update({"val/mAP": m["map"], "val/mAP50": m["map_50"], "val/mAR100": m["mar_100"]})
-            wb.log(log, step=epoch)
+            log["epoch"] = epoch
+            wb.log(log)
 
     if wb is not None:
         wb.summary["best_val_mAP"] = best_map

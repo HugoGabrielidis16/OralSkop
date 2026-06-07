@@ -425,7 +425,8 @@ uv run --extra clf --extra qlora --extra det python -m oralskop.det.eval \
 Key config (`configs/det/qlora_dinov2_detr.yaml`): `arch` (`dinov2_small`/`base`/`large`
 or `hf:<id>`), `quantize` (`none` bf16 — recommended — / `4bit` experimental), `lora_*`,
 `num_queries` (max boxes/image), `imgsz` (518), `optimizer: paged_adamw8bit`,
-`grad_accum_steps`. Saves a full `best.pt`/`last.pt` + `meta.json` to `runs/det/<name>/`.
+`grad_accum_steps`, `progress`, `log_interval`, and `wandb_log_interval`.
+Saves a full `best.pt`/`last.pt` + `meta.json` to `runs/det/<name>/`.
 Caveats: DETR is slow to converge (start at base, ~50 epochs, expect modest early mAP);
 box labels are weak (image-level → every box gets the image's condition).
 

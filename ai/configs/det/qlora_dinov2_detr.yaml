@@ -43,6 +43,7 @@ eval_score_threshold: 0.0     # keep all preds for mAP ranking
 progress: true
 progress_leave: true
 log_interval: 25
+wandb_log_interval: 25       # batch-level W&B train/loss logs; 0 = epoch-only
 unreadable_log_limit: 0
 out_dir: runs/det
 name: det_coarse_dinov2_detr_qlora
