@@ -1,0 +1,53 @@
+# QLoRA fine-tuning of DINOv2-large for the multi-label manifest classifier.
+# Tuned for an A10G (~24 GB, bf16). Install: uv sync --extra clf --extra qlora [--extra wandb]
+#   uv run --extra clf --extra qlora python -m oralskop.clf.train \
+#       --config configs/clf/qlora_dinov2.yaml --override image_root=datasets/02_PROCESSED
+
+# --- data -------------------------------------------------------------------
+manifest: manifest_03_master_FINAL.csv
+image_root: datasets/02_PROCESSED          # local after scripts/download_data.py (or s3://...)
+level: coarse                              # coarse | fine
+labels_file: configs/clf/labels_coarse.yaml
+exclude_train_only_microclasses: true
+image_path_prefixes: null
+cache_dir: null
+limit: null
+
+# --- foundation model + QLoRA ----------------------------------------------
+arch: dinov2_large            # friendly name -> facebook/dinov2-large (or hf:<model_id>)
+quantize: 4bit                # 4bit (QLoRA) | 8bit | none
+lora: true
+lora_r: 16
+lora_alpha: 32
+lora_dropout: 0.05
+lora_target_modules: null     # null -> [query,key,value,dense,fc1,fc2]
+grad_checkpointing: true
+imgsz: 518                    # DINOv2 native (37x14); null -> processor default
+# normalization (mean/std) is read from the model's image processor automatically
+
+# --- training ---------------------------------------------------------------
+epochs: 30
+batch: 16
+grad_accum_steps: 2           # effective batch 32
+lr: 0.0002
+weight_decay: 0.05
+optimizer: paged_adamw8bit    # 8-bit paged optimizer (bitsandbytes)
+scheduler: cosine
+warmup_epochs: 2
+pos_weight: auto              # neg/pos per class from train (handles imbalance)
+threshold: 0.5
+num_workers: 4
+device: cuda
+amp: true                     # bf16 on A10 (auto); fp16 fallback on T4
+seed: 42
+
+# --- logging / output -------------------------------------------------------
+progress: true
+progress_leave: true
+log_interval: 25
+unreadable_log_limit: 0
+out_dir: runs/clf
+name: clf_coarse_dinov2_large_qlora
+exist_ok: false
+wandb: true
+wandb_project: oralskop-clf
