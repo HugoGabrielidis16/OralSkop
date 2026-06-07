@@ -8,6 +8,15 @@ optional LLM chat explainer.
 The repo is three layers: **`ai/`** trains the models, **`backend/`** serves
 predictions over an API, and **`frontend-next/`** is the user-facing app.
 
+## Model in action
+
+Instance segmentation of dental conditions (caries, abrasion, filling, crown) from a
+single intraoral photo:
+
+| Input photo | Model prediction |
+|:---:|:---:|
+| ![Raw intraoral photo](imgs/alphadent__p098_M_60_002_raw.png) | ![Model segmentation overlay](imgs/alphadent__p098_M_60_002_overlay.png) |
+
 ## Repository layout
 
 | Folder | What it does |
