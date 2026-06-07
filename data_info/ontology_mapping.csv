@@ -1,0 +1,104 @@
+dataset,label_brut,count,annotation_format,canonical_fine,canonical_coarse,augmentation_suspectee,note
+caries_spectra,AdvanceEnamel_Caries,800,classif,caries_cavitaire,carie,non,~ICDAS 5-6
+caries_spectra,EarlyStageEnamel_Caries,800,classif,caries_initiale,carie,non,~ICDAS 1-2
+caries_spectra,NoEnamel_Caries,400,classif,dent_saine,sain,non,classe negative du dataset (pas de carie email)
+dentalmate,earlydecay,2557,yolo-bbox,caries_initiale,carie,a_verifier,Roboflow export; ~ICDAS 1-2
+dentalmate,decay,558,yolo-bbox,caries_moderee,carie,a_verifier,
+dentalmate,decaycavity,1870,yolo-bbox,caries_cavitaire,carie,a_verifier,
+dentalmate,decayed tooth,1906,yolo-bbox,caries_moderee,carie,a_verifier,
+dentalmate,cavity,2039,yolo-bbox,caries_cavitaire,carie,a_verifier,
+dentalmate,cavities,82,yolo-bbox,caries_cavitaire,carie,a_verifier,
+dentalmate,tooth-decay,38,yolo-bbox,caries_moderee,carie,a_verifier,
+roboflow_dental_data2_87ne6,caries,4917,yolo-bbox,caries_moderee,carie,a_verifier,Roboflow export
+roboflow_dental_data2_87ne6,cavity,6555,yolo-bbox,caries_cavitaire,carie,a_verifier,Roboflow export
+sajid_oral_diseases,Caries,2086,yolo-bbox,caries_moderee,carie,a_verifier,
+skripsi_yolo11,caries,1353,yolo-bbox,caries_moderee,carie,a_verifier,Roboflow export
+thtthada,caries,3488,yolo-bbox,caries_moderee,carie,a_verifier,Roboflow export
+thtthada,decay,1449,yolo-bbox,caries_moderee,carie,a_verifier,Roboflow export
+yolo_dental_obj_ddt,Caries,4212,yolo-bbox,caries_moderee,carie,a_verifier,Roboflow export; casse melangee
+yolo_dental_obj_ddt,caries,2004,yolo-bbox,caries_moderee,carie,a_verifier,doublon de casse avec 'Caries'
+yolo_dental_obj_ddt,Cavity,1781,yolo-bbox,caries_cavitaire,carie,a_verifier,
+sitol2_oral_14k,DentalCaries,2382,classif,caries_moderee,carie,a_verifier,Roboflow folder export
+pranta_dental_segms,Caries,376,yolo-bbox,caries_moderee,carie,a_verifier,Roboflow export
+mithi_ahmed_2025,caries(COCO/VOC/YOLO),4472,coco+voc+yolo,caries_moderee,carie,non,triple format annotation
+imageseg_fdams,gingivitis,297,yolo-bbox,gingivite,maladie_parodontale,a_verifier,Roboflow export
+roboflow_dental_data2_87ne6,gingivitis,2305,yolo-bbox,gingivite,maladie_parodontale,a_verifier,
+sajid_oral_diseases,Gingivitis,759,yolo-bbox,gingivite,maladie_parodontale,a_verifier,
+pranta_dental_segms,Gingivitis,358,yolo-bbox,gingivite,maladie_parodontale,a_verifier,
+yolo_dental_obj_ddt,gingivitis,454,yolo-bbox,gingivite,maladie_parodontale,a_verifier,
+sitol2_oral_14k,Gingivitis,1248,classif,gingivite,maladie_parodontale,a_verifier,
+thtthada,gingevitis,692,yolo-bbox,gingivite,maladie_parodontale,a_verifier,faute orthographe source
+thtthada,gum_inflammation,188,yolo-bbox,gingivite,maladie_parodontale,a_verifier,signe cardinal gingivite
+thtthada,gum_swelling,124,yolo-bbox,gingivite,maladie_parodontale,a_verifier,signe cardinal gingivite
+decolor_clinician_anno,Gingivitis,396,yolo-bbox,gingivite,maladie_parodontale,a_verifier,
+decolor_clinician_anno,Periodontitis,267,yolo-bbox,parodontite,maladie_parodontale,a_verifier,
+pranta_dental_segms,Periodontitis,431,yolo-bbox,parodontite,maladie_parodontale,a_verifier,
+decolor_clinician_anno,Normal Gingiva,125,yolo-bbox,gencive_saine,sain,a_verifier,
+pknu_calculus,inflammation(K),120,classif,gingivite,maladie_parodontale,non,coreen 'inflammation presente'
+pknu_calculus,no_inflammation(K),100,classif,gencive_saine,sain,non,coreen 'pas inflammation'
+sajid_oral_diseases,Ulcer,369,yolo-bbox,ulcere,lesion_muqueuse_benigne,a_verifier,
+yolo_dental_obj_ddt,ulcer,336,yolo-bbox,ulcere,lesion_muqueuse_benigne,a_verifier,
+pranta_dental_segms,Mouth Ulcer,417,yolo-bbox,ulcere,lesion_muqueuse_benigne,a_verifier,
+sitol2_oral_14k,mouthulcer,2541,classif,ulcere,lesion_muqueuse_benigne,a_verifier,VOLUME ELEVE - spot-check requis
+sitol2_oral_14k,cankersores,479,classif,aphte,lesion_muqueuse_benigne,a_verifier,
+sitol2_oral_14k,cold sores,449,classif,herpes,lesion_muqueuse_benigne,a_verifier,
+sitol2_oral_14k,oralthrush,393,classif,candidose,lesion_muqueuse_benigne,a_verifier,FLAG lesion_blanche
+sitol2_oral_14k,gangivostomatitis,360,classif,gingivostomatite,lesion_muqueuse_benigne,a_verifier,
+mod_rashid,CaS,79,classif,aphte,lesion_muqueuse_benigne,non,canker sores
+mod_rashid,CoS,75,classif,herpes,lesion_muqueuse_benigne,non,cold sores
+mod_rashid,OT,63,classif,candidose,lesion_muqueuse_benigne,non,oral thrush; FLAG lesion_blanche
+mod_rashid,Gum,61,classif,gingivostomatite,lesion_muqueuse_benigne,non,gingivostomatitis
+oral_images_chandrashekar,benign_lesions,165,classif,tumeur_benigne_ou_kyste,lesion_muqueuse_benigne,non,ORIGINALES seulement (augmentees jetees)
+sitol2_oral_14k,orallichenplanus,534,classif,opmd,lesion_muqueuse_suspecte,a_verifier,lichen plan; FLAG lesion_blanche
+mod_rashid,OLP,94,classif,opmd,lesion_muqueuse_suspecte,non,oral lichen planus; FLAG lesion_blanche
+code_ragas_icmr,03. OPMD,25,via-polygon-json,opmd,lesion_muqueuse_suspecte,non,polygones VIA; faible volume
+sitol2_oral_14k,mouthcancer,538,classif,cancer_oral,lesion_muqueuse_suspecte,a_verifier,
+sitol2_oral_14k,oralcancer,322,classif,cancer_oral,lesion_muqueuse_suspecte,a_verifier,
+mod_rashid,MC,90,classif,cancer_oral,lesion_muqueuse_suspecte,non,mouth cancer
+mod_rashid,OC,54,classif,cancer_oral,lesion_muqueuse_suspecte,non,oral cancer
+code_ragas_icmr,04. ORAL CANCER,14,via-polygon-json,cancer_oral,lesion_muqueuse_suspecte,non,polygones VIA; faible volume
+Kaggle_Shivam_Barot,cancer,87,classif,cancer_oral,lesion_muqueuse_suspecte,non,
+kaggle_oral_cancer_smahmedhassan,CANCER,111,classif,cancer_oral,lesion_muqueuse_suspecte,non,
+oral_images_chandrashekar,malignant_lesions,158,classif,cancer_oral,lesion_muqueuse_suspecte,non,ORIGINALES seulement (augmentees jetees)
+pknu_calculus,dental_calculus,120,classif,tartre,depots_dentaires,non,Heavy/Light
+skripsi_yolo11,calculus,1324,yolo-bbox,tartre,depots_dentaires,a_verifier,
+sitol2_oral_14k,Calculus,828,classif,tartre,depots_dentaires,a_verifier,
+sajid_oral_diseases,Calculus,0,classif,tartre,depots_dentaires,a_verifier,present (dossier)
+roboflow_dental_data2_87ne6,plaque,1480,yolo-bbox,plaque,depots_dentaires,a_verifier,
+thtthada,plaque,2552,yolo-bbox,plaque,depots_dentaires,a_verifier,
+dentalmate,black stain,216,yolo-bbox,coloration_externe,anomalie_de_couleur,a_verifier,FLAG coloration externe
+thtthada,stains,459,yolo-bbox,coloration_externe,anomalie_de_couleur,a_verifier,FLAG coloration externe
+digital_health_bg_t98xc,Decoloration tooth,460,yolo-bbox,decoloration,anomalie_de_couleur,a_verifier,
+digital_health_bg_teeth_discoured,Decoloration tooth,1485,yolo-bbox,decoloration,anomalie_de_couleur,a_verifier,
+skripsi_yolo11,tooth discoloration,1092,yolo-bbox,decoloration,anomalie_de_couleur,a_verifier,
+sajid_oral_diseases,Tooth Discoloration,333,yolo-bbox,decoloration,anomalie_de_couleur,a_verifier,
+yolo_dental_obj_ddt,tooth discoloration,305,yolo-bbox,decoloration,anomalie_de_couleur,a_verifier,
+sitol2_oral_14k,toothdiscoloration,1833,classif,decoloration,anomalie_de_couleur,a_verifier,
+mouth_detection,mouth,2000,yolo-bbox,bouche,anatomie,a_verifier,detection objet
+yolo_dental_obj_ddt,Tooth,22737,yolo-bbox,dent_objet,anatomie,a_verifier,pilier pipeline 2-etapes
+thtthada,abscess,66,yolo-bbox,abces,pathologie_urgente,a_verifier,triage urgence
+yolo_dental_obj_ddt,Crack,180,yolo-bbox,fracture_fissure,pathologie_urgente,a_verifier,trauma
+decolor_clinician_anno,Erosion,16,yolo-bbox,erosion_usure,usure_dentaire,a_verifier,perte tissu dur chimique
+dentalmate,filling,25,yolo-bbox,restauration,restauration,a_verifier,historique dentaire
+dentalmate,misaligned,419,yolo-bbox,malocclusion,ortho_structure,a_verifier,
+thtthada,misaligned,18,yolo-bbox,malocclusion,ortho_structure,a_verifier,
+thtthada,spacing,212,yolo-bbox,espacement,ortho_structure,a_verifier,
+dentalmate,spaced,208,yolo-bbox,espacement,ortho_structure,a_verifier,
+skripsi_yolo11,hypodontia,1002,yolo-bbox,hypodontie,anomalie_dentaire,a_verifier,
+sitol2_oral_14k,hypodontia,1215,classif,hypodontie,anomalie_dentaire,a_verifier,
+sajid_oral_diseases,hypodontia,0,classif,hypodontie,anomalie_dentaire,a_verifier,present (dossier)
+tooth_marked_tongue,marked,546,classif,langue_marquee,signe_fonctionnel,non,bruxisme/apnee indice
+tooth_marked_tongue,unmarked,704,classif,langue_normale,sain,non,
+dentalmate,normal,2982,yolo-bbox,sain_generique,sain,a_verifier,
+dentalmate,healthytooth,2253,yolo-bbox,dent_saine,sain,a_verifier,
+roboflow_dental_data2_87ne6,healthy,3083,yolo-bbox,sain_generique,sain,a_verifier,
+skripsi_yolo11,healthytooth,1065,yolo-bbox,dent_saine,sain,a_verifier,
+sitol2_oral_14k,healthyoral,1131,classif,sain_generique,sain,a_verifier,
+code_ragas_icmr,01. NORMAL,10937,via-polygon-json,muqueuse_saine,sain,non,banque normale clinique
+code_ragas_icmr,02. VARIATIONS FROM NORMAL,330,via-polygon-json,muqueuse_saine,sain,non,variantes anatomiques normales
+Kaggle_Shivam_Barot,non-cancer,44,classif,muqueuse_saine,sain,non,
+kaggle_oral_cancer_smahmedhassan,NON CANCER,130,classif,muqueuse_saine,sain,non,
+smart_om,8 sites anatomiques sains,7731,via-json,muqueuse_saine,sain,non,langue/joue/levre/arcade - sites sains
+gingivitis_mgi_hanoi,grades MGI BS1 (captions),1096,captioning-csv+yolo,gingivite_gradee_MGI,maladie_parodontale,non,captioning par-dent; traite separement
+digital_health_bg_t98xc,Tooth,2374,yolo-bbox,dent_objet,anatomie,a_verifier,classe anatomique
+digital_health_bg_teeth_discoured,Tooth,2481,yolo-bbox,dent_objet,anatomie,a_verifier,classe anatomique
