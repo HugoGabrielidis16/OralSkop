@@ -8,6 +8,8 @@ optional LLM chat explainer.
 The repo is three layers: **`ai/`** trains the models, **`backend/`** serves
 predictions over an API, and **`frontend-next/`** is the user-facing app.
 
+> 🦷 **Live demo:** [oral-skop.vercel.app/guide](https://oral-skop.vercel.app/guide)
+
 ## Model in action
 
 Instance segmentation of dental conditions (caries, abrasion, filling, crown) from a
