@@ -14,7 +14,14 @@ import torch
 
 from oralskop.config import apply_overrides, load_yaml
 from oralskop.clf.vocab import Vocab
-from oralskop.det.dataset import AI_ROOT, ManifestDetDataset, det_collate_fn, load_bbox_frame
+from oralskop.det.dataset import (
+    AI_ROOT,
+    BoxLabelConfig,
+    ManifestDetDataset,
+    det_collate_fn,
+    load_bbox_frame,
+    load_box_label_config,
+)
 from oralskop.det.metrics import format_per_class
 from oralskop.det.model import build_detector, build_detr_processor
 from oralskop.det.train import evaluate_map
@@ -41,6 +48,27 @@ def _resolve_weights(cfg, cli):
     return default
 
 
+def _box_label_config_from_meta(meta: dict, cfg: dict) -> BoxLabelConfig:
+    raw_maps = meta.get("box_class_maps")
+    if raw_maps is not None:
+        maps = {
+            str(dataset): {int(class_id): str(label) for class_id, label in by_id.items()}
+            for dataset, by_id in raw_maps.items()
+        }
+        return BoxLabelConfig(
+            source=meta.get("box_label_source", cfg.get("box_label_source", "image")),
+            class_maps=maps,
+            unknown_policy=meta.get("unknown_box_class_policy", cfg.get("unknown_box_class_policy", "drop")),
+            class_agnostic_label=meta.get("class_agnostic_label", cfg.get("class_agnostic_label", "object")),
+        )
+    return load_box_label_config(
+        cfg.get("box_label_map"),
+        source=meta.get("box_label_source", cfg.get("box_label_source", "image")),
+        unknown_policy=meta.get("unknown_box_class_policy", cfg.get("unknown_box_class_policy", "drop")),
+        class_agnostic_label=meta.get("class_agnostic_label", cfg.get("class_agnostic_label", "object")),
+    )
+
+
 def main(argv=None):
     args = parse_args(argv)
     cfg = apply_overrides(load_yaml(args.config), args.override)
@@ -55,6 +83,7 @@ def main(argv=None):
     ckpt = torch.load(weights, map_location="cpu", weights_only=False)
     meta = ckpt["meta"]
     vocab = Vocab(names=list(meta["class_names"]), level=meta["level"])
+    box_label_config = _box_label_config_from_meta(meta, cfg)
     model, _ = build_detector(len(vocab), meta["arch"], quantize=meta.get("quantize", "none"),
                               lora=bool(meta.get("lora", True)), compute_dtype=compute_dtype,
                               num_queries=int(meta.get("num_queries", 100)), imgsz=meta["imgsz"])
@@ -62,15 +91,20 @@ def main(argv=None):
     is_quant = str(meta.get("quantize", "none")).lower() == "4bit"
     if not is_quant:
         model = model.to(device)
-    print(f"Loaded {weights} | arch={meta['arch']} classes={len(vocab)} epoch={ckpt.get('epoch')}")
+    print(
+        f"Loaded {weights} | arch={meta['arch']} classes={len(vocab)} "
+        f"epoch={ckpt.get('epoch')} box_labels={box_label_config.source}"
+    )
 
     df, _ = load_bbox_frame(cfg["manifest"], meta["level"],
-                            image_path_prefixes=cfg.get("image_path_prefixes"), limit=cfg.get("limit"))
+                            image_path_prefixes=cfg.get("image_path_prefixes"), limit=cfg.get("limit"),
+                            box_label_config=box_label_config)
     test_ds = ManifestDetDataset(
         df[df["split"].str.strip() == _SPLIT_TEST], vocab,
         image_root=cfg.get("image_root", "s3://datastoraged4gen/02_PROCESSED"),
         imgsz=int(meta["imgsz"]), cache_dir=cfg.get("cache_dir"),
-        mean=tuple(meta["mean"]), std=tuple(meta["std"]))
+        mean=tuple(meta["mean"]), std=tuple(meta["std"]),
+        box_label_config=box_label_config)
     print(f"test={len(test_ds)} rows (dropped {test_ds.dropped_off_vocab})")
     if len(test_ds) == 0:
         raise SystemExit("No test rows — check manifest split/filters.")

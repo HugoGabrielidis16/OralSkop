@@ -13,6 +13,15 @@ image_path_prefixes: null
 cache_dir: null
 limit: null
 
+# --- box labels --------------------------------------------------------------
+# native: parse YOLO class_id per box and map it via box_label_map (preferred)
+# image: legacy weak mode; assign every box the image's single canonical label
+# class_agnostic: ignore class_id and train one generic `object` box class
+box_label_source: native
+box_label_map: configs/det/box_label_map_coarse.yaml
+unknown_box_class_policy: drop      # drop | error | image | class_agnostic
+class_agnostic_label: object
+
 # --- model (DINOv2 backbone + DETR head) -----------------------------------
 arch: dinov2_base             # dinov2_small | dinov2_base | dinov2_large | hf:<id>
 quantize: none                # none (bf16 LoRA, recommended) | 4bit (QLoRA, experimental)

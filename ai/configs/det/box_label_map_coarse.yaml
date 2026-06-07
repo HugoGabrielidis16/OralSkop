@@ -1,0 +1,23 @@
+# Native YOLO class-id -> detector coarse class mapping.
+#
+# This file is intentionally source-specific. The manifest's canonical labels are
+# image-level aggregates; they should not be used to infer per-box labels unless the
+# source class order is known. Add datasets here only when the native YOLO class id
+# order is documented or verified from the source export's data.yaml/classes file.
+#
+# Target names must exist in configs/clf/labels_coarse.yaml unless you train in
+# class_agnostic mode.
+
+level: coarse
+
+datasets:
+  # PASSATION_DATA_OralSkop.md section 6.3:
+  # 0 = temporary-tooth caries, 1 = permanent-tooth caries; both coarse -> carie.
+  mithi_ahmed_2025:
+    0: carie
+    1: carie
+
+  # Single-class mouth detector rows in the manifest (`labels_bruts=mouth`).
+  # Keep this only if the detector should learn general mouth/anatomy boxes.
+  mouth_detection:
+    0: anatomie

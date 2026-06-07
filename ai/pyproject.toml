@@ -49,6 +49,7 @@ serve = [
 explore = [
     "segmentation-models-pytorch>=0.3.4",
     "albumentations>=1.4",
+    "transformers>=4.44",
     "peft>=0.11",
     "timm>=0.9",
 ]

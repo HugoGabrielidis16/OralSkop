@@ -23,7 +23,13 @@ from tqdm.auto import tqdm
 from oralskop.config import apply_overrides, load_yaml
 from oralskop.clf.train import build_optimizer, build_scheduler, resolve_run_dir, wandb_setup
 from oralskop.clf.vocab import build_vocab
-from oralskop.det.dataset import AI_ROOT, ManifestDetDataset, det_collate_fn, load_bbox_frame
+from oralskop.det.dataset import (
+    AI_ROOT,
+    ManifestDetDataset,
+    det_collate_fn,
+    load_bbox_frame,
+    load_box_label_config,
+)
 from oralskop.det.metrics import (
     format_per_class,
     new_map_metric,
@@ -121,14 +127,25 @@ def main(argv=None):
     use_scaler = use_amp and amp_dtype == torch.float16
 
     level = cfg.get("level", "coarse")
+    box_label_config = load_box_label_config(
+        cfg.get("box_label_map"),
+        source=cfg.get("box_label_source", "image"),
+        unknown_policy=cfg.get("unknown_box_class_policy", "drop"),
+        class_agnostic_label=cfg.get("class_agnostic_label", "object"),
+    )
     df, labels_per_row = load_bbox_frame(cfg["manifest"], level,
                                          image_path_prefixes=cfg.get("image_path_prefixes"),
-                                         limit=cfg.get("limit"))
-    vocab = build_vocab(level, labels_file=cfg.get("labels_file"), labels_per_row=labels_per_row,
+                                         limit=cfg.get("limit"),
+                                         box_label_config=box_label_config)
+    labels_file = None if box_label_config.source == "class_agnostic" else cfg.get("labels_file")
+    vocab = build_vocab(level, labels_file=labels_file, labels_per_row=labels_per_row,
                         exclude_micro=bool(cfg.get("exclude_train_only_microclasses", True)))
     num_classes = len(vocab)
     arch = str(cfg.get("arch", "dinov2_base"))
-    print(f"Level={level}: {num_classes} classes | bbox rows={len(df)} | arch={arch}")
+    print(
+        f"Level={level}: {num_classes} classes | bbox rows={len(df)} | arch={arch} "
+        f"| box_labels={box_label_config.source}"
+    )
 
     model, preprocess = build_detector(
         num_classes, arch, quantize=cfg.get("quantize", "none"), lora=bool(cfg.get("lora", True)),
@@ -148,6 +165,7 @@ def main(argv=None):
     imgsz, mean, std = int(preprocess["imgsz"]), preprocess["mean"], preprocess["std"]
     ds_kw = dict(image_root=cfg.get("image_root", "s3://datastoraged4gen/02_PROCESSED"),
                  imgsz=imgsz, cache_dir=cfg.get("cache_dir"), mean=mean, std=std,
+                 box_label_config=box_label_config,
                  unreadable_log_limit=int(cfg.get("unreadable_log_limit", 0) or 0))
     train_ds = ManifestDetDataset(df[df["split"].str.strip() == _SPLIT_TRAIN], vocab, **ds_kw)
     val_ds = ManifestDetDataset(df[df["split"].str.strip() == _SPLIT_VAL], vocab, **ds_kw)
@@ -180,7 +198,11 @@ def main(argv=None):
     meta = {"arch": arch, "model_id": preprocess.get("model_id"), "num_classes": num_classes,
             "class_names": vocab.names, "level": level, "imgsz": imgsz,
             "mean": list(mean), "std": list(std), "quantize": cfg.get("quantize", "none"),
-            "lora": bool(cfg.get("lora", True)), "num_queries": int(cfg.get("num_queries", 100))}
+            "lora": bool(cfg.get("lora", True)), "num_queries": int(cfg.get("num_queries", 100)),
+            "box_label_source": box_label_config.source,
+            "box_class_maps": box_label_config.class_maps,
+            "unknown_box_class_policy": box_label_config.unknown_policy,
+            "class_agnostic_label": box_label_config.class_agnostic_label}
     (out_dir / "meta.json").write_text(json.dumps(meta, indent=2))
     metrics_path = out_dir / "metrics.jsonl"
     if metrics_path.exists():

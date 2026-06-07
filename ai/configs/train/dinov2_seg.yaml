@@ -1,0 +1,51 @@
+# DINOv2 semantic-segmentation fine-tune on AlphaDent.
+# Requires: uv sync --extra explore
+#
+# `pretrained: true` downloads/uses the Hugging Face DINOv2 checkpoint. For an
+# offline smoke test, override `pretrained=false arch=dinov2_small imgsz=140`.
+
+datasets: [alphadent]
+split_train: train
+split_val: val
+
+arch: dinov2_base              # dinov2_small | dinov2_base | dinov2_large | hf:<model_id>
+pretrained: true
+
+imgsz: 518                     # DINOv2 native size; multiple of patch size 14
+epochs: 50
+batch: 4
+lr: 0.00005
+weight_decay: 0.01
+optimizer: adamw
+momentum: 0.9
+nesterov: false
+scheduler: cosine
+warmup_epochs: 3
+min_lr_factor: 0.05
+poly_power: 0.9
+loss: ce_dice
+aug: strong
+workers: 8
+device: 0
+amp: true
+aux_loss_weight: 0.0
+class_weights: auto
+grad_checkpointing: true
+lora: false                    # set true for adapter tuning instead of full fine-tune
+lora_r: 16
+lora_alpha: 32
+lora_targets: query,key,value,dense,fc1,fc2
+val_interval: 1
+progress: true
+log_per_class: true
+save_model: true
+seed: 42
+
+out: runs/seg
+name: dinov2_base_seg_alphadent
+exist_ok: false
+
+wandb: false
+wandb_project: oralskop-seg
+wandb_entity: null
+wandb_images: 8

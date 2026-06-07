@@ -127,10 +127,10 @@ opening a window.
 
 ## 3c. Custom PyTorch training (non-YOLO, semantic segmentation)
 
-A separate `torchseg` stack trains a **torchvision** segmentation model on any built
-dataset (or a merged set) using a real `torch.utils.data.Dataset`. It rasterizes the
-polygon labels into per-pixel masks (`0=background`, canonical class `c` → `c+1`), so it
-predicts **semantic** segmentation (per-pixel class), not YOLO's instance masks. This is
+A separate `torchseg` stack trains a **torchvision / SMP / DINOv2** segmentation model on
+any built dataset (or a merged set) using a real `torch.utils.data.Dataset`. It rasterizes
+the polygon labels into per-pixel masks (`0=background`, canonical class `c` -> `c+1`), so
+it predicts **semantic** segmentation (per-pixel class), not YOLO's instance masks. This is
 independent of the Ultralytics path in section 2.
 
 ```bash
@@ -145,18 +145,23 @@ uv run python -m oralskop.torchseg.train --config configs/train/seg_torch.yaml \
 uv run python -m oralskop.torchseg.train --config configs/train/seg_torch.yaml \
     --override arch=lraspp_mobilenet_v3_large pretrained=false imgsz=128 \
               batch=2 epochs=1 device=cpu limit_batches=3
+
+# DINOv2 semantic segmentation on AlphaDent
+uv run --extra explore python -m oralskop.torchseg.train \
+    --config configs/train/dinov2_seg.yaml
 ```
 
 Key config (`configs/train/seg_torch.yaml`): `arch`
 (deeplabv3_resnet50 / deeplabv3_mobilenet_v3_large / fcn_resnet50 /
 lraspp_mobilenet_v3_large / unet / deeplabv3plus_resnet50 /
-deeplabv3plus_efficientnet-b4 / segformer_mit_b2 / segformer_mit_b3),
+deeplabv3plus_efficientnet-b4 / segformer_mit_b2 / segformer_mit_b3 /
+dinov2_small / dinov2_base / dinov2_large / `hf:<model_id>`),
 `imgsz`, `batch`, `lr`, `class_weights: auto` (median-frequency balancing for imbalance),
 `loss` (ce / ce_dice / focal / focal_dice / lovasz), `optimizer` (adamw / sgd),
 `scheduler` (none / cosine / poly), `warmup_epochs`, `aug` (none / flip / light / strong),
-`lora`, and `limit_batches` (debug). Reports **val fg_mIoU** + mIoU + dice + pixel
-accuracy; saves `best.pt`/`last.pt` to `runs/seg/<name>/`. By default `exist_ok: false`
-**auto-increments** the run dir
+`grad_checkpointing`, `lora`, and `limit_batches` (debug). Reports **val fg_mIoU** +
+mIoU + dice + pixel accuracy; saves `best.pt`/`last.pt` to `runs/seg/<name>/`. By default
+`exist_ok: false` **auto-increments** the run dir
 (`<name>`, `<name>2`, `<name>3`, …) so a re-run never overwrites old checkpoints; set
 `exist_ok=true` to reuse/overwrite `runs/seg/<name>/`.
 
@@ -177,10 +182,15 @@ uv run python -m oralskop.torchseg.train --config configs/train/segformer.yaml \
     --override epochs=1 limit_batches=3 device=cpu imgsz=128 batch=2 pretrained=false save_model=false
 uv run python -m oralskop.torchseg.train --config configs/train/segformer.yaml \
     --override epochs=1 limit_batches=3 device=cpu imgsz=128 batch=2 pretrained=false lora=true save_model=false
+
+# DINOv2 decoder smoke test (random DINOv2-small config; no HF checkpoint download)
+uv run --extra explore python -m oralskop.torchseg.train --config configs/train/dinov2_seg.yaml \
+    --override arch=dinov2_small pretrained=false epochs=1 limit_batches=3 \
+              device=cpu imgsz=140 batch=2 workers=0 save_model=false
 ```
 
-The DeepLabV3+, SegFormer, `aug=light|strong`, non-CE losses, and LoRA paths require
-`uv sync --extra explore`.
+The DeepLabV3+, SegFormer, DINOv2, `aug=light|strong`, non-CE losses, and LoRA paths
+require `uv sync --extra explore`.
 
 ### YOLO-to-semantic bridge
 
@@ -394,10 +404,12 @@ from the model's image processor; bf16 auto-selected on A10/A100 (fp16 on T4). S
 ## 3f. Object detection (DINOv2 + DETR, manifest bbox subset)
 
 `oralskop.det` trains a **DINOv2-backbone DETR** detector on the manifest's `yolo-bbox`
-rows (~15.7k single-condition images). Each box is assigned its image's `canonical_coarse`
-class (weak multi-class). The DINOv2 backbone is adapted with **LoRA** (bf16 by default;
-`quantize=4bit` for experimental QLoRA); the DETR head trains full-precision, and HF
-computes the set-prediction loss. Reports detection **mAP**. CUDA only.
+rows. By default, each YOLO box keeps its native `class_id` and that id is mapped per
+source through `configs/det/box_label_map_coarse.yaml`; the legacy image-level weak label
+mode is still available with `box_label_source=image`. The DINOv2 backbone is adapted
+with **LoRA** (bf16 by default; `quantize=4bit` for experimental QLoRA); the DETR head
+trains full-precision, and HF computes the set-prediction loss. Reports detection
+**mAP**. CUDA only.
 
 ```bash
 # Deps (transformers/peft via qlora; torchmetrics/pycocotools/timm via det)
@@ -424,12 +436,14 @@ uv run --extra clf --extra qlora --extra det python -m oralskop.det.eval \
 
 Key config (`configs/det/qlora_dinov2_detr.yaml`): `arch` (`dinov2_small`/`base`/`large`
 or `hf:<id>`), `quantize` (`none` bf16 — recommended — / `4bit` experimental), `lora_*`,
-`num_queries` (max boxes/image), `imgsz` (518), `optimizer: paged_adamw8bit`,
-`grad_accum_steps`, `progress`, `log_interval`, `wandb_log_interval`, and
-`eval_match_score_threshold` (confidence cutoff for precision50/recall50/F1_50).
+`box_label_source` (`native` / `image` / `class_agnostic`), `box_label_map`,
+`unknown_box_class_policy`, `num_queries` (max boxes/image), `imgsz` (518),
+`optimizer: paged_adamw8bit`, `grad_accum_steps`, `progress`, `log_interval`,
+`wandb_log_interval`, and `eval_match_score_threshold` (confidence cutoff for
+precision50/recall50/F1_50).
 Saves a full `best.pt`/`last.pt` + `meta.json` to `runs/det/<name>/`.
 Caveats: DETR is slow to converge (start at base, ~50 epochs, expect modest early mAP);
-box labels are weak (image-level → every box gets the image's condition).
+native id maps must be documented per source; unmapped boxes are dropped by default.
 
 ---
 

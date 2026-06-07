@@ -1523,6 +1523,7 @@ explore = [
     { name = "peft" },
     { name = "segmentation-models-pytorch" },
     { name = "timm" },
+    { name = "transformers" },
 ]
 qlora = [
     { name = "accelerate" },
@@ -1571,6 +1572,7 @@ requires-dist = [
     { name = "torchmetrics", marker = "extra == 'det'", specifier = ">=1.0" },
     { name = "torchvision", specifier = ">=0.17" },
     { name = "tqdm", specifier = ">=4.66" },
+    { name = "transformers", marker = "extra == 'explore'", specifier = ">=4.44" },
     { name = "transformers", marker = "extra == 'qlora'", specifier = ">=4.44" },
     { name = "ultralytics", specifier = ">=8.3.0" },
     { name = "uvicorn", marker = "extra == 'serve'", specifier = ">=0.29" },

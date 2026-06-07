@@ -1,4 +1,4 @@
-"""Segmentation model factory: torchvision builders plus our from-scratch U-Net.
+"""Segmentation model factory: torchvision, SMP, DINOv2, and our U-Net.
 
 All models share one interface: ``forward`` returns a dict with key ``"out"``
 (and ``"aux"`` for the deeplab/fcn variants). ``num_classes`` includes the
@@ -10,6 +10,7 @@ from __future__ import annotations
 import torch.nn as nn
 from torchvision.models import segmentation as tvseg
 
+from oralskop.torchseg.model.dinov2 import Dinov2SegmentationModel
 from oralskop.torchseg.model.unet import UNet
 
 _BUILDERS = {
@@ -22,6 +23,10 @@ _BUILDERS = {
     "deeplabv3plus_efficientnet-b4": (None, False),
     "segformer_mit_b2": (None, False),
     "segformer_mit_b3": (None, False),
+    "dinov2_small": (None, False),
+    "dinov2_base": (None, False),
+    "dinov2_large": (None, False),
+    "dinov2_giant": (None, False),
 }
 
 
@@ -89,6 +94,9 @@ def build_model(num_classes: int, arch: str = "deeplabv3_resnet50", pretrained: 
 
     if arch == "unet":
         return UNet(num_classes)  # trained from scratch; `pretrained` does not apply
+
+    if arch.startswith("dinov2_") or arch.startswith("hf:"):
+        return Dinov2SegmentationModel(num_classes, arch=arch, pretrained=pretrained)
 
     if arch.startswith(("deeplabv3plus_", "segformer_")):
         return _build_smp_model(num_classes, arch, pretrained)

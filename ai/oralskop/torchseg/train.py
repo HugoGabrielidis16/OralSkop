@@ -158,11 +158,12 @@ def build_optimizer(cfg: dict, model: torch.nn.Module) -> torch.optim.Optimizer:
     name = str(cfg.get("optimizer", "adamw")).lower()
     lr = cfg.get("lr", 2e-4)
     weight_decay = cfg.get("weight_decay", 1e-4)
+    params = [p for p in model.parameters() if p.requires_grad]
     if name == "adamw":
-        return torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+        return torch.optim.AdamW(params, lr=lr, weight_decay=weight_decay)
     if name == "sgd":
         return torch.optim.SGD(
-            model.parameters(),
+            params,
             lr=lr,
             momentum=cfg.get("momentum", 0.9),
             weight_decay=weight_decay,
@@ -398,6 +399,8 @@ def main(argv: list[str] | None = None) -> None:
     model = build_model(num_classes, arch=cfg.get("arch", "deeplabv3_resnet50"),
                         pretrained=cfg.get("pretrained", True)).to(device)
     arch = cfg.get("arch", "deeplabv3_resnet50")
+    if bool(cfg.get("grad_checkpointing", False)) and hasattr(model, "gradient_checkpointing_enable"):
+        model.gradient_checkpointing_enable()
     if bool(cfg.get("lora", False)):
         model = apply_lora(
             model,
