@@ -18,22 +18,6 @@ predictions over an API, and **`frontend-next/`** is the user-facing app.
 | `frontend/` | Early static-HTML prototype (`index.html`, `dentist.html`) kept for reference. |
 | `models/` | Standalone top-level model training entry (`train.py` + `dataset.yaml`). |
 
-## Inside `ai/`
-
-| Path | What it does |
-|---|---|
-| `configs/` | YAML configs: `taxonomy.yaml` (canonical classes) plus `data/`, `clf/`, `det/`, `train/` model + dataset configs. |
-| `oralskop/` | The Python package (installed via `pyproject.toml` / `uv`). |
-| `oralskop/data/` | Dataset pipeline: verify → split → build, taxonomy mapping, coverage & describe tools, plus format `converters/`. |
-| `oralskop/clf/` | Multi-label classifier (DINOv2 + QLoRA): dataset, model, train, eval, metrics, vocab. |
-| `oralskop/det/` | Object detector (DINOv2-backbone DETR): dataset, model, train, eval, metrics. |
-| `oralskop/torchseg/` | Semantic segmentation (SegFormer / DINOv2) with LoRA, losses, and test tooling. |
-| `oralskop/train/`, `eval/`, `bench/`, `viz/` | Generic training entry, evaluation metrics, benchmarking, and visualization. |
-| `oralskop/serve/` | FastAPI/Bedrock serving + `/chat` LLM layer used by `backend/`. |
-| `scripts/` | Data download (`download_data.py`) and environment/bootstrap helpers. |
-| `notebooks/` | Exploration & training notebooks. |
-| `datasets/`, `data/` | Raw inputs and processed/built datasets (bulk content gitignored). |
-
 ## Documentation
 
 - [`ai/README.md`](ai/README.md) — AI package overview and layout.
